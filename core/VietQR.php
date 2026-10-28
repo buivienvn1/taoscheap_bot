@@ -27,4 +27,12 @@ final class VietQR
 
         return $base . '?' . http_build_query($query);
     }
+    public function transferDetails(): array
+    {
+        return [
+            'bank_id' => (string) $this->bank['bank_id'],
+            'account_number' => (string) $this->bank['account_number'],
+            'account_name' => (string) $this->bank['account_name'],
+        ];
+    }
 }

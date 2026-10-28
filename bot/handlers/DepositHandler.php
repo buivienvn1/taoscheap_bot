@@ -22,6 +22,18 @@ final class DepositHandler
             . $lang->get('transfer_content') . ': <code>' . $deposit['code'] . "</code>\n"
             . $lang->get('minimum') . ': <b>' . Helpers::money($this->minDeposit) . "</b>\n\n"
             . $lang->get('deposit_code_note');
-        $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($deposit['code']), $caption, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
+        $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
+
+        try {
+            $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($deposit['code']), $caption, $keyboard);
+        } catch (Throwable $error) {
+            error_log('Deposit QR delivery failed: ' . $error::class);
+            $bank = $this->vietQr->transferDetails();
+            $text = $caption . "\n\n<i>" . $lang->get('qr_unavailable') . "</i>\n\n"
+                . '<b>' . $lang->get('bank') . ':</b> ' . Helpers::escape($bank['bank_id']) . "\n"
+                . '<b>' . $lang->get('account_number') . ':</b> <code>' . Helpers::escape($bank['account_number']) . "</code>\n"
+                . '<b>' . $lang->get('account_name') . ':</b> ' . Helpers::escape($bank['account_name']);
+            $this->telegram->sendMessage($chatId, $text, $keyboard);
+        }
     }
 }

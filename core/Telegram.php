@@ -42,7 +42,22 @@ final class Telegram
         if ($keyboard !== []) {
             $payload['reply_markup'] = json_encode(['inline_keyboard' => $keyboard], JSON_UNESCAPED_UNICODE);
         }
-        return $this->request('sendPhoto', $payload);
+
+        try {
+            return $this->request('sendPhoto', $payload);
+        } catch (RuntimeException $error) {
+            if (!str_contains($error->getMessage(), 'failed to get HTTP URL content')) {
+                throw $error;
+            }
+        }
+
+        $file = $this->downloadImage($photo);
+        try {
+            $payload['photo'] = new CURLFile($file, 'image/png', 'vietqr.png');
+            return $this->request('sendPhoto', $payload);
+        } finally {
+            @unlink($file);
+        }
     }
 
     public function answerCallback(string $callbackId): array
@@ -62,6 +77,56 @@ final class Telegram
             $payload['reply_markup'] = json_encode(['inline_keyboard' => $keyboard], JSON_UNESCAPED_UNICODE);
         }
         return $payload;
+    }
+
+    private function downloadImage(string $url): string
+    {
+        $parts = parse_url($url);
+        if (($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') !== 'img.vietqr.io') {
+            throw new RuntimeException('QR image host is not allowed.');
+        }
+
+        $file = tempnam(sys_get_temp_dir(), 'vietqr_');
+        if ($file === false) {
+            throw new RuntimeException('Unable to create temporary QR image.');
+        }
+
+        $handle = fopen($file, 'wb');
+        if ($handle === false) {
+            @unlink($file);
+            throw new RuntimeException('Unable to open temporary QR image.');
+        }
+
+        $size = 0;
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_FILE => $handle,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_WRITEFUNCTION => static function ($curl, string $data) use ($handle, &$size): int {
+                $size += strlen($data);
+                if ($size > 5 * 1024 * 1024) {
+                    return 0;
+                }
+                return fwrite($handle, $data);
+            },
+        ]);
+        $success = curl_exec($curl);
+        $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $contentType = (string) curl_getinfo($curl, CURLINFO_CONTENT_TYPE);
+        curl_close($curl);
+        fclose($handle);
+
+        $imageInfo = @getimagesize($file);
+        if ($success === false || $status !== 200 || $size === 0 || $size > 5 * 1024 * 1024
+            || !str_starts_with($contentType, 'image/') || $imageInfo === false) {
+            @unlink($file);
+            throw new RuntimeException('Unable to download a valid QR image.');
+        }
+
+        return $file;
     }
 
     private function request(string $method, array $payload): array
