@@ -198,27 +198,24 @@ final class Telegram
         }
 
         $svg = file_get_contents($file);
-        if ($svg === false || preg_match(
-            '/href=["\']data:image\/png;base64,([A-Za-z0-9+\/=]+)["\']/i',
-            $svg,
-            $matches
-        ) !== 1) {
+        if ($svg === false) {
             @unlink($file);
-            throw new RuntimeException('QR SVG does not contain an embedded PNG image.');
+            throw new RuntimeException('Unable to read the QR SVG image.');
         }
 
-        $image = base64_decode($matches[1], true);
-        if ($image === false || $image === '' || strlen($image) > 5 * 1024 * 1024
-            || file_put_contents($file, $image, LOCK_EX) === false) {
+        try {
+            $this->renderVietQrPng($svg, $file);
+        } catch (Throwable $error) {
             @unlink($file);
-            throw new RuntimeException('Unable to extract the embedded QR image.');
+            throw $error;
         }
 
-        $size = strlen($image);
+        $size = (int) filesize($file);
         $imageInfo = @getimagesize($file);
-        if ($imageInfo === false || ($imageInfo['mime'] ?? '') !== 'image/png') {
+        if ($size === 0 || $size > 5 * 1024 * 1024 || $imageInfo === false
+            || ($imageInfo['mime'] ?? '') !== 'image/png') {
             @unlink($file);
-            throw new RuntimeException('Embedded QR image is not a valid PNG image.');
+            throw new RuntimeException('Rendered QR image is not a valid PNG image.');
         }
 
         $mime = 'image/png';
@@ -238,6 +235,74 @@ final class Telegram
             'name' => 'vietqr.' . $extension,
             'size' => $size,
         ];
+    }
+
+    private function renderVietQrPng(string $svg, string $file): void
+    {
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagepng')) {
+            throw new RuntimeException('PHP GD is required to render the QR image.');
+        }
+
+        if (preg_match(
+            '/href=["\']data:image\/png;base64,([A-Za-z0-9+\/=]+)["\']/i',
+            $svg,
+            $backgroundMatch
+        ) !== 1 || preg_match(
+            '/<g\s+transform=["\']translate\(([0-9.]+)\s+([0-9.]+)\)\s+scale\(([0-9.]+)\)["\'][^>]*>.*?<path\s+fill=["\']#111111["\']\s+d=["\']([^"\']+)["\']/s',
+            $svg,
+            $qrMatch
+        ) !== 1) {
+            throw new RuntimeException('QR SVG structure is not supported.');
+        }
+
+        $background = base64_decode($backgroundMatch[1], true);
+        if ($background === false || $background === '' || strlen($background) > 5 * 1024 * 1024) {
+            throw new RuntimeException('QR SVG background is invalid.');
+        }
+
+        $canvas = @imagecreatefromstring($background);
+        if ($canvas === false || imagesx($canvas) !== 540 || imagesy($canvas) !== 540) {
+            if ($canvas !== false) {
+                imagedestroy($canvas);
+            }
+            throw new RuntimeException('QR SVG background dimensions are invalid.');
+        }
+
+        $offsetX = (float) $qrMatch[1];
+        $offsetY = (float) $qrMatch[2];
+        $scale = (float) $qrMatch[3];
+        $path = $qrMatch[4];
+        if ($offsetX < 0 || $offsetY < 0 || $scale <= 0 || $scale > 20
+            || preg_match_all('/M(\d+) (\d+)h(\d+)v1h-(\d+)z/', $path, $rectangles, PREG_SET_ORDER) < 1) {
+            imagedestroy($canvas);
+            throw new RuntimeException('QR SVG path is invalid.');
+        }
+
+        $parsedPath = '';
+        $black = imagecolorallocate($canvas, 17, 17, 17);
+        foreach ($rectangles as $rectangle) {
+            $parsedPath .= $rectangle[0];
+            $x = (int) $rectangle[1];
+            $y = (int) $rectangle[2];
+            $width = (int) $rectangle[3];
+            if ($width !== (int) $rectangle[4] || $x < 0 || $y < 0 || $width < 1
+                || $x + $width > 57 || $y >= 57) {
+                imagedestroy($canvas);
+                throw new RuntimeException('QR SVG module is outside the expected grid.');
+            }
+
+            $left = (int) floor($offsetX + ($x * $scale));
+            $top = (int) floor($offsetY + ($y * $scale));
+            $right = (int) ceil($offsetX + (($x + $width) * $scale)) - 1;
+            $bottom = (int) ceil($offsetY + (($y + 1) * $scale)) - 1;
+            imagefilledrectangle($canvas, $left, $top, $right, $bottom, $black);
+        }
+
+        if ($parsedPath !== $path || !imagepng($canvas, $file, 6)) {
+            imagedestroy($canvas);
+            throw new RuntimeException('Unable to render the QR PNG image.');
+        }
+        imagedestroy($canvas);
     }
 
     private function request(string $method, array $payload): array
