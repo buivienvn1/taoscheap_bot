@@ -134,6 +134,17 @@ final class Telegram
             throw new RuntimeException('QR image host is not allowed.');
         }
 
+        $path = (string) ($parts['path'] ?? '');
+        $svgPath = preg_replace('/\.(?:jpe?g|png)$/i', '.svg', $path, 1, $replacements);
+        if ($svgPath === null || $replacements !== 1) {
+            throw new RuntimeException('QR image path is not supported.');
+        }
+        $parts['path'] = $svgPath;
+        $downloadUrl = 'https://img.vietqr.io' . $svgPath;
+        if (isset($parts['query']) && $parts['query'] !== '') {
+            $downloadUrl .= '?' . $parts['query'];
+        }
+
         $file = tempnam(sys_get_temp_dir(), 'vietqr_');
         if ($file === false) {
             throw new RuntimeException('Unable to create temporary QR image.');
@@ -146,7 +157,7 @@ final class Telegram
         }
 
         $size = 0;
-        $curl = curl_init($url);
+        $curl = curl_init($downloadUrl);
         curl_setopt_array($curl, [
             CURLOPT_FILE => $handle,
             CURLOPT_FOLLOWLOCATION => false,
@@ -170,9 +181,8 @@ final class Telegram
         curl_close($curl);
         fclose($handle);
 
-        $imageInfo = @getimagesize($file);
         if ($success === false || $status !== 200 || $size === 0 || $size > 5 * 1024 * 1024
-            || !str_starts_with($contentType, 'image/') || $imageInfo === false) {
+            || !str_starts_with($contentType, 'image/svg+xml')) {
             error_log(sprintf(
                 'QR download failed [ref=%s http=%d curl=%d mime=%s size=%d redirect=%s]: %s',
                 $reference,
@@ -187,8 +197,32 @@ final class Telegram
             throw new RuntimeException('Unable to download a valid QR image.');
         }
 
-        $mime = (string) ($imageInfo['mime'] ?? $contentType);
-        $extension = $mime === 'image/jpeg' ? 'jpg' : 'png';
+        $svg = file_get_contents($file);
+        if ($svg === false || preg_match(
+            '/href=["\']data:image\/png;base64,([A-Za-z0-9+\/=]+)["\']/i',
+            $svg,
+            $matches
+        ) !== 1) {
+            @unlink($file);
+            throw new RuntimeException('QR SVG does not contain an embedded PNG image.');
+        }
+
+        $image = base64_decode($matches[1], true);
+        if ($image === false || $image === '' || strlen($image) > 5 * 1024 * 1024
+            || file_put_contents($file, $image, LOCK_EX) === false) {
+            @unlink($file);
+            throw new RuntimeException('Unable to extract the embedded QR image.');
+        }
+
+        $size = strlen($image);
+        $imageInfo = @getimagesize($file);
+        if ($imageInfo === false || ($imageInfo['mime'] ?? '') !== 'image/png') {
+            @unlink($file);
+            throw new RuntimeException('Embedded QR image is not a valid PNG image.');
+        }
+
+        $mime = 'image/png';
+        $extension = 'png';
 
         error_log(sprintf(
             'QR download succeeded [ref=%s http=%d mime=%s size=%d]',
