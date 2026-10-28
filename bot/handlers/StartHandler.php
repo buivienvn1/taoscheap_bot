@@ -11,22 +11,25 @@ final class StartHandler
     public function show(int $chatId, ?int $messageId = null): void
     {
         $settings = $this->settings();
-        $shopName = ($settings['shop_name'] ?? '') ?: 'Foxpay';
-        $shopIntro = ($settings['shop_intro'] ?? '') ?: "FOXPAY - gudang aplikasi digital\nuntuk memenuhi semua kebutuhan\nharian anda.";
-        $owner = ($settings['owner_username'] ?? '') ?: '@foxstoreid';
-        $channel = ($settings['channel_username'] ?? '') ?: '@foxpayid';
-        $website = ($settings['website'] ?? '') ?: 'foxpay.my.id';
 
-        $text = '<blockquote>Selamat Datang Di ' . Helpers::escape($shopName) . "</blockquote>\n\n"
+        $shopName = ($settings['shop_name'] ?? '') ?: 'Taos Cheap';
+        $shopIntro = ($settings['shop_intro'] ?? '') ?: "Taos Cheap - kho sản phẩm số\nđáp ứng mọi nhu cầu\nhằng ngày của bạn.";
+        $owner = ($settings['owner_username'] ?? '') ?: '@taoscat';
+        $channel = ($settings['channel_username'] ?? '') ?: '@taoscheap';
+        $website = ($settings['website'] ?? '') ?: 'taoscheap.qthang.net';
+
+        $text = '<blockquote>Chào mừng đến với <b>'
+            . Helpers::escape($shopName)
+            . "</b></blockquote>\n\n"
             . Helpers::escape($shopIntro) . "\n\n"
-            . "Kenapa harus kami ?\n"
-            . "- transaksi aman ✅\n"
-            . "- cs fast respon ✅\n"
-            . "- produk berkualitas ✅\n\n"
-            . "Tentang kami :\n"
+            . "<b>Tại sao chọn chúng tôi?</b>\n"
+            . "- Giao dịch an toàn ✅\n"
+            . "- Hỗ trợ nhanh chóng ✅\n"
+            . "- Sản phẩm chất lượng ✅\n\n"
+            . "<b>Về chúng tôi:</b>\n"
             . 'owner - ' . Helpers::escape($owner) . "\n"
-            . 'channel - ' . Helpers::escape($channel) . "\n"
-            . 'website - ' . Helpers::escape($website);
+            . 'channel - ' . Helpers::escape($channel);
+
         $keyboard = [
             [['text' => '📦 Sản phẩm', 'callback_data' => 'products'], ['text' => '💳 Nạp tiền', 'callback_data' => 'deposit']],
             [['text' => '👤 Cá nhân', 'callback_data' => 'profile'], ['text' => '🆘 Hỗ trợ', 'callback_data' => 'support']],
