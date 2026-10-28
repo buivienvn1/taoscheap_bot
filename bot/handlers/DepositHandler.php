@@ -37,23 +37,31 @@ final class DepositHandler
             ];
         });
         $bank = $this->vietQr->transferDetails();
-        $caption = '<blockquote><b>' . $lang->get('deposit_title') . "</b></blockquote>\n\n"
-            . $lang->get('transfer_content') . ': <code>' . $deposit['code'] . "</code>\n"
-            . '🏦 Bank: <b>' . Helpers::escape($bank['bank_id']) . '</b> | STK: <code>'
-            . Helpers::escape($bank['account_number']) . "</code>\n"
-            . $lang->get('minimum') . ': <b>' . Helpers::money($this->minDeposit) . "</b>\n\n"
-            . $lang->get('deposit_code_note');
+        $qrUrl = $this->vietQr->imageUrl((string) $deposit['code']);
+        $content = '<blockquote><b>' . $lang->get('deposit_title') . "</b></blockquote>\n\n"
+            . $lang->get('payment_bank_line', [
+                'bank' => Helpers::escape($bank['bank_id']),
+                'account' => Helpers::escape($bank['account_number']),
+            ]) . "\n"
+            . $lang->get('payment_content_line', [
+                'content' => Helpers::escape((string) $deposit['code']),
+            ]) . "\n"
+            . $lang->get('payment_minimum_line', [
+                'amount' => Helpers::money($this->minDeposit),
+            ]) . "\n\n"
+            . $lang->get('payment_instruction');
         $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
 
         try {
-            $this->telegram->replaceWithPhoto($chatId, $messageId, $this->vietQr->imageUrl($deposit['code']), $caption, $keyboard);
+            $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
         } catch (Throwable $error) {
             error_log('Deposit QR delivery failed: ' . $error::class);
-            $text = $caption . "\n\n<i>" . $lang->get('qr_unavailable') . "</i>\n\n"
-                . '<b>' . $lang->get('bank') . ':</b> ' . Helpers::escape($bank['bank_id']) . "\n"
-                . '<b>' . $lang->get('account_number') . ':</b> <code>' . Helpers::escape($bank['account_number']) . "</code>\n"
-                . '<b>' . $lang->get('account_name') . ':</b> ' . Helpers::escape($bank['account_name']);
-            $this->telegram->editMessage($chatId, $messageId, $text, $keyboard);
+            $fallbackKeyboard = [
+                [['text' => $lang->get('open_qr'), 'url' => $qrUrl]],
+                ...$keyboard,
+            ];
+            $text = $content . "\n\n<i>" . $lang->get('qr_unavailable') . '</i>';
+            $this->telegram->editMessage($chatId, $messageId, $text, $fallbackKeyboard);
         }
     }
 }
