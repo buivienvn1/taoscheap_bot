@@ -8,7 +8,7 @@ final class DepositHandler
     {
     }
 
-    public function show(int $chatId, int $userId, Language $lang): void
+    public function show(int $chatId, int $messageId, int $userId, Language $lang): void
     {
         $deposit = $this->db->fetch("SELECT * FROM deposits WHERE user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1", [$userId]);
         if ($deposit === null) {
@@ -25,7 +25,7 @@ final class DepositHandler
         $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
 
         try {
-            $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($deposit['code']), $caption, $keyboard);
+            $this->telegram->replaceWithPhoto($chatId, $messageId, $this->vietQr->imageUrl($deposit['code']), $caption, $keyboard);
         } catch (Throwable $error) {
             error_log('Deposit QR delivery failed: ' . $error::class);
             $bank = $this->vietQr->transferDetails();
@@ -33,7 +33,7 @@ final class DepositHandler
                 . '<b>' . $lang->get('bank') . ':</b> ' . Helpers::escape($bank['bank_id']) . "\n"
                 . '<b>' . $lang->get('account_number') . ':</b> <code>' . Helpers::escape($bank['account_number']) . "</code>\n"
                 . '<b>' . $lang->get('account_name') . ':</b> ' . Helpers::escape($bank['account_name']);
-            $this->telegram->sendMessage($chatId, $text, $keyboard);
+            $this->telegram->editMessage($chatId, $messageId, $text, $keyboard);
         }
     }
 }

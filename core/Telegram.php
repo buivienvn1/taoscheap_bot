@@ -25,10 +25,20 @@ final class Telegram
 
     public function editMessage(int|string $chatId, int $messageId, string $text, array $keyboard = []): array
     {
-        return $this->request('editMessageText', array_merge(
-            $this->messagePayload($chatId, $text, $keyboard),
-            ['message_id' => $messageId]
-        ));
+        try {
+            return $this->request('editMessageText', array_merge(
+                $this->messagePayload($chatId, $text, $keyboard),
+                ['message_id' => $messageId]
+            ));
+        } catch (RuntimeException $error) {
+            if (!str_contains($error->getMessage(), 'there is no text in the message to edit')) {
+                throw $error;
+            }
+        }
+
+        $result = $this->sendMessage($chatId, $text, $keyboard);
+        $this->deleteQuietly($chatId, $messageId);
+        return $result;
     }
 
     public function sendPhoto(int|string $chatId, string $photo, string $caption, array $keyboard = []): array
@@ -60,6 +70,13 @@ final class Telegram
         }
     }
 
+    public function replaceWithPhoto(int|string $chatId, int $messageId, string $photo, string $caption, array $keyboard = []): array
+    {
+        $result = $this->sendPhoto($chatId, $photo, $caption, $keyboard);
+        $this->deleteQuietly($chatId, $messageId);
+        return $result;
+    }
+
     public function answerCallback(string $callbackId): array
     {
         return $this->request('answerCallbackQuery', ['callback_query_id' => $callbackId]);
@@ -68,6 +85,15 @@ final class Telegram
     public function setWebhook(string $url, string $secret): array
     {
         return $this->request('setWebhook', ['url' => $url, 'secret_token' => $secret]);
+    }
+
+    private function deleteQuietly(int|string $chatId, int $messageId): void
+    {
+        try {
+            $this->request('deleteMessage', ['chat_id' => $chatId, 'message_id' => $messageId]);
+        } catch (Throwable $error) {
+            error_log('Telegram old message cleanup failed: ' . $error::class);
+        }
     }
 
     private function messagePayload(int|string $chatId, string $text, array $keyboard): array

@@ -8,21 +8,21 @@ final class OrderHandler
     {
     }
 
-    public function buy(int $chatId, array $user, int $variantId, Language $lang): void
+    public function buy(int $chatId, int $messageId, array $user, int $variantId, Language $lang): void
     {
         $variant = $this->db->fetch('SELECT v.*, p.name product_name FROM variants v JOIN products p ON p.id = v.product_id WHERE v.id = ? AND v.status = 1 AND p.status = 1', [$variantId]);
         if ($variant === null) {
-            $this->telegram->sendMessage($chatId, $lang->get('product_unavailable'));
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'));
             return;
         }
         if ($variant['supplier_type'] !== 'manual') {
-            $this->telegram->sendMessage($chatId, $lang->get('api_supplier_pending'));
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('api_supplier_pending'));
             return;
         }
 
         if ((float) $user['balance'] >= (float) $variant['price']) {
             $result = $this->purchaseWithWallet((int) $user['id'], $variant, $lang);
-            $this->telegram->sendMessage($chatId, $result['message'], [[['text' => $lang->get('continue_buying'), 'callback_data' => 'products'], ['text' => $lang->get('home'), 'callback_data' => 'start']]]);
+            $this->telegram->editMessage($chatId, $messageId, $result['message'], [[['text' => $lang->get('continue_buying'), 'callback_data' => 'products'], ['text' => $lang->get('home'), 'callback_data' => 'start']]]);
             return;
         }
 
@@ -33,7 +33,19 @@ final class OrderHandler
             . $lang->get('product') . ': ' . Helpers::escape($variant['product_name'] . ' - ' . $variant['name']) . "\n"
             . $lang->get('amount') . ': <b>' . Helpers::money($variant['price']) . "</b>\n"
             . $lang->get('transfer_content') . ': <code>' . $paymentCode . '</code>';
-        $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($paymentCode, (float) $variant['price']), $caption, [[['text' => $lang->get('products_button'), 'callback_data' => 'products']]]);
+        $keyboard = [[['text' => $lang->get('products_button'), 'callback_data' => 'products']]];
+
+        try {
+            $this->telegram->replaceWithPhoto($chatId, $messageId, $this->vietQr->imageUrl($paymentCode, (float) $variant['price']), $caption, $keyboard);
+        } catch (Throwable $error) {
+            error_log('Order QR delivery failed: ' . $error::class);
+            $bank = $this->vietQr->transferDetails();
+            $text = $caption . "\n\n<i>" . $lang->get('qr_unavailable') . "</i>\n\n"
+                . '<b>' . $lang->get('bank') . ':</b> ' . Helpers::escape($bank['bank_id']) . "\n"
+                . '<b>' . $lang->get('account_number') . ':</b> <code>' . Helpers::escape($bank['account_number']) . "</code>\n"
+                . '<b>' . $lang->get('account_name') . ':</b> ' . Helpers::escape($bank['account_name']);
+            $this->telegram->editMessage($chatId, $messageId, $text, $keyboard);
+        }
     }
 
     private function purchaseWithWallet(int $userId, array $variant, Language $lang): array

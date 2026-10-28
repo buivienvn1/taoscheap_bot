@@ -65,10 +65,10 @@ final class Router
         elseif ($data === 'products') $this->products->list($chatId, $messageId, $lang);
         elseif ($data === 'support') $this->support->show($chatId, $messageId, $lang);
         elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) substr($data, 8), $lang);
-        elseif ($data === 'deposit') $this->deposit->show($chatId, (int) $user['id'], $lang);
+        elseif ($data === 'deposit') $this->deposit->show($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user, $lang);
         elseif ($data === 'history') $this->profile->history($chatId, $messageId, (int) $user['id'], $lang);
-        elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $user, (int) substr($data, 4), $lang);
+        elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $messageId, $user, (int) substr($data, 4), $lang);
     }
 
     private function showLanguage(int $chatId, int $messageId, Language $lang): void
