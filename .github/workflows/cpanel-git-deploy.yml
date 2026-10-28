@@ -36,7 +36,7 @@ jobs:
             fi
           done
 
-      - name: Update repository from GitHub
+      - name: Request repository update and log cPanel response
         env:
           CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
           CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
@@ -60,27 +60,25 @@ jobs:
             --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
             "https://${host}:${CPANEL_PORT}/execute/VersionControl/update")"
 
-          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-            echo "::error::cPanel repository update returned HTTP $http_code."
-            cat "$response_file"
+          echo "Update HTTP status: ${http_code}"
+          echo "Update API response:"
+          jq '.' "$response_file" || cat "$response_file"
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ] || \
+             [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
+            echo "::error::cPanel rejected the repository update request."
             exit 1
           fi
 
-          if [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
-            echo "::error::cPanel repository update failed."
-            jq -r '.errors[]? // .messages[]? // .' "$response_file"
-            exit 1
-          fi
+          echo "cPanel accepted the asynchronous update request; waiting 30 seconds before deployment."
+          sleep 30
 
-          echo "cPanel accepted the repository update request. Waiting for the asynchronous pull."
-
-      - name: Deploy and verify production commit
+      - name: Request one deployment and log cPanel response
         env:
           CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
           CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
           CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
           CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
-          DEPLOY_MARKER_URL: https://taoscheap.qthang.net/deploy-commit.txt
         shell: bash
         run: |
           set -euo pipefail
@@ -89,38 +87,45 @@ jobs:
           host="${host%%/*}"
           host="${host%%:*}"
 
-          for attempt in $(seq 1 30); do
-            echo "Deployment verification attempt ${attempt}/30"
-            response_file="$(mktemp)"
-            http_code="$(curl --silent --show-error \
-              --output "$response_file" \
-              --write-out '%{http_code}' \
-              --request GET \
-              --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
-              --get \
-              --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
-              "https://${host}:${CPANEL_PORT}/execute/VersionControlDeployment/create" || true)"
+          response_file="$(mktemp)"
+          http_code="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request GET \
+            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            --get \
+            --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
+            "https://${host}:${CPANEL_PORT}/execute/VersionControlDeployment/create")"
 
-            api_status="$(jq -r '.status // 0' "$response_file" 2>/dev/null || echo 0)"
-            if [ "$http_code" = "200" ] && [ "$api_status" = "1" ]; then
-              echo "cPanel accepted deployment request."
-            else
-              echo "cPanel deployment is not ready yet (HTTP ${http_code}, API status ${api_status})."
-            fi
+          echo "Deployment HTTP status: ${http_code}"
+          echo "Deployment API response:"
+          jq '.' "$response_file" || cat "$response_file"
 
-            sleep 10
-            deployed_sha="$(curl --silent --show-error --fail \
-              --header 'Cache-Control: no-cache' \
-              "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" 2>/dev/null \
-              | tr -d '\r\n[:space:]' || true)"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ] || \
+             [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
+            echo "::error::cPanel rejected the deployment request."
+            exit 1
+          fi
 
-            echo "Expected SHA: ${GITHUB_SHA}"
-            echo "Deployed SHA: ${deployed_sha:-not available}"
-            if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
-              echo "Production deployment verified successfully."
-              exit 0
-            fi
-          done
+          echo "cPanel accepted the asynchronous deployment request."
+          sleep 30
 
-          echo "::error::cPanel did not deploy commit ${GITHUB_SHA} within 5 minutes."
-          exit 1
+      - name: Verify deployed commit on production
+        env:
+          DEPLOY_MARKER_URL: https://taoscheap.qthang.net/deploy-commit.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          deployed_sha="$(curl --silent --show-error --fail \
+            --header 'Cache-Control: no-cache' \
+            "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}" 2>/dev/null \
+            | tr -d '\r\n[:space:]' || true)"
+
+          echo "Expected SHA: ${GITHUB_SHA}"
+          echo "Deployed SHA: ${deployed_sha:-not available}"
+          if [ "$deployed_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::cPanel accepted the API requests but production does not contain commit ${GITHUB_SHA}. Inspect the JSON responses above for task identifiers and queue metadata."
+            exit 1
+          fi
+
+          echo "Production deployment verified successfully."
