@@ -1,0 +1,113 @@
+name: Auto Deploy via cPanel Git
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: cpanel-git-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CPANEL_PORT: '2083'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate required secrets
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CPANEL_HOST CPANEL_USERNAME CPANEL_API_TOKEN CPANEL_REPOSITORY_ROOT; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured in GitHub Actions secrets."
+              exit 1
+            fi
+          done
+
+      - name: Update repository from GitHub
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${CPANEL_HOST#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          host="${host%%:*}"
+
+          response_file="$(mktemp)"
+          http_code="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request GET \
+            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            --get \
+            --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
+            "https://${host}:${CPANEL_PORT}/execute/VersionControl/update")"
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::cPanel repository update returned HTTP $http_code."
+            cat "$response_file"
+            exit 1
+          fi
+
+          if [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
+            echo "::error::cPanel repository update failed."
+            jq -r '.errors[]? // .messages[]? // .' "$response_file"
+            exit 1
+          fi
+
+          echo "cPanel pulled the latest commit successfully."
+
+      - name: Deploy HEAD commit
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${CPANEL_HOST#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          host="${host%%:*}"
+
+          response_file="$(mktemp)"
+          http_code="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request GET \
+            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            --get \
+            --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
+            "https://${host}:${CPANEL_PORT}/execute/VersionControlDeployment/create")"
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::cPanel deployment returned HTTP $http_code."
+            cat "$response_file"
+            exit 1
+          fi
+
+          if [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
+            echo "::error::cPanel deployment failed."
+            jq -r '.errors[]? // .messages[]? // .' "$response_file"
+            exit 1
+          fi
+
+          echo "cPanel accepted the deployment successfully."
