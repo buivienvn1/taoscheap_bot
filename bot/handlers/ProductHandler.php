@@ -16,12 +16,14 @@ final class ProductHandler
         foreach ($products as $index => $product) {
             $number = $index + 1;
             $stock = (int) $product['stock'];
-            $availability = $stock > 0 ? $lang->get('available', ['count' => $stock]) : $lang->get('out_of_stock');
-            $text .= $number . '. ' . Helpers::escape($product['name']) . ' - ' . $availability . "\n";
+            $text .= $number . '. <b>' . Helpers::escape($product['name']) . '</b> - '
+                . $lang->get('product_stock', ['count' => $stock]) . "\n";
             $buttons[] = ['text' => (string) $number, 'callback_data' => 'product:' . $product['id']];
         }
         if ($products === []) {
             $text .= $lang->get('empty_products');
+        } else {
+            $text .= "\n<i>" . $lang->get('product_list_hint') . '</i>';
         }
         $keyboard = array_chunk($buttons, 5);
         $keyboard[] = [['text' => $lang->get('back'), 'callback_data' => 'start'], ['text' => $lang->get('refresh'), 'callback_data' => 'products']];
