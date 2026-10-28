@@ -1,9 +1,30 @@
+-- TAOS Shop - Fresh database installation
+-- WARNING: This script permanently deletes all existing shop data.
+
 SET NAMES utf8mb4;
 SET time_zone = '+07:00';
+SET FOREIGN_KEY_CHECKS = 0;
 
-CREATE TABLE IF NOT EXISTS users (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    telegram_id BIGINT NOT NULL UNIQUE,
+DROP TABLE IF EXISTS notification_outbox;
+DROP TABLE IF EXISTS checkout_selections;
+DROP TABLE IF EXISTS purchase_requests;
+DROP TABLE IF EXISTS order_deliveries;
+DROP TABLE IF EXISTS payment_events;
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS deposits;
+DROP TABLE IF EXISTS stocks;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS variants;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS admins;
+DROP TABLE IF EXISTS settings;
+DROP TABLE IF EXISTS users;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE users (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    telegram_id BIGINT NOT NULL,
     username VARCHAR(100) NULL,
     first_name VARCHAR(150) NOT NULL DEFAULT '',
     balance DECIMAL(15,2) NOT NULL DEFAULT 0.00,
@@ -11,11 +32,13 @@ CREATE TABLE IF NOT EXISTS users (
     state VARCHAR(50) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_users_created_at (created_at)
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_users_telegram_id (telegram_id),
+    KEY idx_users_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS products (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE products (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     source_variant_id BIGINT UNSIGNED NULL,
     name VARCHAR(150) NOT NULL,
     description TEXT NULL,
@@ -24,12 +47,13 @@ CREATE TABLE IF NOT EXISTS products (
     status TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_products_visible (status, sort_order),
-    UNIQUE KEY uq_products_source_variant (source_variant_id)
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_products_source_variant (source_variant_id),
+    KEY idx_products_visible (status, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS variants (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE variants (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     product_id BIGINT UNSIGNED NOT NULL,
     name VARCHAR(150) NOT NULL,
     price DECIMAL(15,2) NOT NULL,
@@ -39,14 +63,22 @@ CREATE TABLE IF NOT EXISTS variants (
     status TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_variants_product FOREIGN KEY (product_id) REFERENCES products(id),
-    INDEX idx_variants_product (product_id, status, sort_order)
+    PRIMARY KEY (id),
+    KEY idx_variants_product (product_id, status, sort_order),
+    CONSTRAINT fk_variants_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS orders (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_code VARCHAR(30) NOT NULL UNIQUE,
-    payment_code VARCHAR(30) NULL UNIQUE,
+ALTER TABLE products
+    ADD CONSTRAINT fk_products_source_variant
+        FOREIGN KEY (source_variant_id) REFERENCES variants(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL;
+
+CREATE TABLE orders (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    order_code VARCHAR(30) NOT NULL,
+    payment_code VARCHAR(30) NULL,
     user_id BIGINT UNSIGNED NOT NULL,
     variant_id BIGINT UNSIGNED NOT NULL,
     quantity INT UNSIGNED NOT NULL DEFAULT 1,
@@ -62,41 +94,59 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     paid_at DATETIME NULL,
     completed_at DATETIME NULL,
-    CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_orders_variant FOREIGN KEY (variant_id) REFERENCES variants(id),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_orders_order_code (order_code),
+    UNIQUE KEY uq_orders_payment_code (payment_code),
     UNIQUE KEY uq_orders_request_token (request_token),
-    INDEX idx_orders_user (user_id, created_at),
-    INDEX idx_orders_status (status, created_at),
-    INDEX idx_orders_pending_match (user_id, variant_id, quantity, unit_price, payment_method, status)
+    KEY idx_orders_user (user_id, created_at),
+    KEY idx_orders_status (status, created_at),
+    KEY idx_orders_pending_match (user_id, variant_id, quantity, unit_price, payment_method, status),
+    CONSTRAINT fk_orders_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_orders_variant
+        FOREIGN KEY (variant_id) REFERENCES variants(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS stocks (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE stocks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     variant_id BIGINT UNSIGNED NOT NULL,
     content TEXT NOT NULL,
     is_sold TINYINT(1) NOT NULL DEFAULT 0,
     order_id BIGINT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sold_at DATETIME NULL,
-    CONSTRAINT fk_stocks_variant FOREIGN KEY (variant_id) REFERENCES variants(id),
-    CONSTRAINT fk_stocks_order FOREIGN KEY (order_id) REFERENCES orders(id),
-    INDEX idx_stocks_available (variant_id, is_sold, id)
+    PRIMARY KEY (id),
+    KEY idx_stocks_available (variant_id, is_sold, id),
+    KEY idx_stocks_order (order_id),
+    CONSTRAINT fk_stocks_variant
+        FOREIGN KEY (variant_id) REFERENCES variants(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_stocks_order
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS order_deliveries (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE order_deliveries (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     order_id BIGINT UNSIGNED NOT NULL,
     stock_id BIGINT UNSIGNED NOT NULL,
     content TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_order_deliveries_order FOREIGN KEY (order_id) REFERENCES orders(id),
-    CONSTRAINT fk_order_deliveries_stock FOREIGN KEY (stock_id) REFERENCES stocks(id),
+    PRIMARY KEY (id),
     UNIQUE KEY uq_order_deliveries_stock (stock_id),
-    INDEX idx_order_deliveries_order (order_id, id)
+    KEY idx_order_deliveries_order (order_id, id),
+    CONSTRAINT fk_order_deliveries_order
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_order_deliveries_stock
+        FOREIGN KEY (stock_id) REFERENCES stocks(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS purchase_requests (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE purchase_requests (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     request_token VARCHAR(64) NOT NULL,
     user_id BIGINT UNSIGNED NOT NULL,
     variant_id BIGINT UNSIGNED NOT NULL,
@@ -107,14 +157,23 @@ CREATE TABLE IF NOT EXISTS purchase_requests (
     result_reason VARCHAR(50) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT fk_purchase_requests_user FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_purchase_requests_variant FOREIGN KEY (variant_id) REFERENCES variants(id),
-    CONSTRAINT fk_purchase_requests_order FOREIGN KEY (order_id) REFERENCES orders(id),
+    PRIMARY KEY (id),
     UNIQUE KEY uq_purchase_requests_token (request_token),
-    INDEX idx_purchase_requests_user (user_id, created_at)
+    KEY idx_purchase_requests_user (user_id, created_at),
+    KEY idx_purchase_requests_variant (variant_id),
+    KEY idx_purchase_requests_order (order_id),
+    CONSTRAINT fk_purchase_requests_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_purchase_requests_variant
+        FOREIGN KEY (variant_id) REFERENCES variants(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_purchase_requests_order
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS checkout_selections (
+CREATE TABLE checkout_selections (
     user_id BIGINT UNSIGNED NOT NULL,
     message_id BIGINT NOT NULL,
     product_id BIGINT UNSIGNED NOT NULL,
@@ -122,13 +181,18 @@ CREATE TABLE IF NOT EXISTS checkout_selections (
     version INT UNSIGNED NOT NULL DEFAULT 1,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, message_id),
-    CONSTRAINT fk_checkout_selections_user FOREIGN KEY (user_id) REFERENCES users(id),
-    CONSTRAINT fk_checkout_selections_product FOREIGN KEY (product_id) REFERENCES products(id),
-    INDEX idx_checkout_selections_updated (updated_at)
+    KEY idx_checkout_selections_product (product_id),
+    KEY idx_checkout_selections_updated (updated_at),
+    CONSTRAINT fk_checkout_selections_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT fk_checkout_selections_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+        ON UPDATE RESTRICT ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS notification_outbox (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE notification_outbox (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
     event_key VARCHAR(190) NOT NULL,
     message_key VARCHAR(100) NOT NULL,
@@ -137,25 +201,33 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at DATETIME NULL,
-    CONSTRAINT fk_notification_outbox_user FOREIGN KEY (user_id) REFERENCES users(id),
+    PRIMARY KEY (id),
     UNIQUE KEY uq_notification_outbox_event (event_key),
-    INDEX idx_notification_outbox_pending (status, id)
+    KEY idx_notification_outbox_pending (status, id),
+    KEY idx_notification_outbox_user (user_id, created_at),
+    CONSTRAINT fk_notification_outbox_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS deposits (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE deposits (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
-    code VARCHAR(30) NOT NULL UNIQUE,
+    code VARCHAR(30) NOT NULL,
     amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     status ENUM('pending', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME NULL,
-    CONSTRAINT fk_deposits_user FOREIGN KEY (user_id) REFERENCES users(id),
-    INDEX idx_deposits_pending (user_id, status)
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_deposits_code (code),
+    KEY idx_deposits_pending (user_id, status),
+    CONSTRAINT fk_deposits_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS transactions (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE transactions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
     type ENUM('deposit', 'purchase', 'refund', 'adjustment') NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
@@ -163,13 +235,16 @@ CREATE TABLE IF NOT EXISTS transactions (
     reference_id BIGINT UNSIGNED NULL,
     note VARCHAR(255) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_transactions_user FOREIGN KEY (user_id) REFERENCES users(id),
-    INDEX idx_transactions_user (user_id, created_at),
-    INDEX idx_transactions_reference (reference_type, reference_id)
+    PRIMARY KEY (id),
+    KEY idx_transactions_user (user_id, created_at),
+    KEY idx_transactions_reference (reference_type, reference_id),
+    CONSTRAINT fk_transactions_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS payment_events (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE payment_events (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     provider VARCHAR(30) NOT NULL,
     provider_event_id VARCHAR(150) NOT NULL,
     transfer_content VARCHAR(255) NOT NULL DEFAULT '',
@@ -181,33 +256,42 @@ CREATE TABLE IF NOT EXISTS payment_events (
     wallet_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     payload LONGTEXT NULL,
     processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
     UNIQUE KEY uq_payment_event (provider, provider_event_id),
-    INDEX idx_payment_events_order (order_id),
-    INDEX idx_payment_events_deposit (deposit_id)
+    KEY idx_payment_events_order (order_id),
+    KEY idx_payment_events_deposit (deposit_id),
+    CONSTRAINT fk_payment_events_order
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL,
+    CONSTRAINT fk_payment_events_deposit
+        FOREIGN KEY (deposit_id) REFERENCES deposits(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS settings (
-    key_name VARCHAR(100) PRIMARY KEY,
+CREATE TABLE settings (
+    key_name VARCHAR(100) NOT NULL,
     key_value TEXT NULL,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (key_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS admins (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(100) NOT NULL UNIQUE,
+CREATE TABLE admins (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login_at DATETIME NULL
+    last_login_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_admins_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO settings (key_name, key_value) VALUES
-    ('shop_name', 'Foxpay'),
-    ('shop_intro', 'FOXPAY - gudang aplikasi digital\nuntuk memenuhi semua kebutuhan\nharian anda.'),
-    ('shop_intro_en', '<b>Taos Cheap</b> - digital products for your daily needs.'),
-    ('owner_username', '@foxstoreid'),
-    ('channel_username', '@foxpayid'),
-    ('website', 'foxpay.my.id'),
+    ('shop_name', 'TAOS Shop'),
+    ('shop_intro', 'Sản phẩm số uy tín, giao hàng tự động.'),
+    ('shop_intro_en', 'Trusted digital products with automatic delivery.'),
+    ('owner_username', ''),
+    ('channel_username', ''),
+    ('website', ''),
     ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
     ('support_text_en', 'Contact the administrator for support.'),
-    ('min_deposit', '2000')
-ON DUPLICATE KEY UPDATE key_name = VALUES(key_name);
+    ('min_deposit', '2000');
