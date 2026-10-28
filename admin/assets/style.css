@@ -132,6 +132,81 @@ button,
     margin: 0
 }
 
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px
+}
+
+.help-text {
+    display: block;
+    color: #64748b;
+    margin: -4px 0 12px
+}
+
+.inline-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 14px
+}
+
+.inline-check input {
+    width: auto;
+    margin: 0
+}
+
+.secondary {
+    background: #64748b
+}
+
+.badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 12px;
+    font-weight: 600
+}
+
+.badge.success {
+    color: #166534;
+    background: #dcfce7
+}
+
+.badge.muted {
+    color: #475569;
+    background: #e2e8f0
+}
+
+.success-text {
+    color: #166534
+}
+
+.error-message {
+    color: #991b1b;
+    background: #fee2e2;
+    padding: 10px;
+    border-radius: 6px
+}
+
+.table-wrap {
+    overflow-x: auto
+}
+
+.filter-form {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(130px, 180px) auto;
+    gap: 10px;
+    align-items: end
+}
+
+.stock-content {
+    display: block;
+    max-width: 420px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere
+}
+
 @media(max-width:760px) {
     .layout {
         grid-template-columns: 1fr
@@ -147,6 +222,11 @@ button,
 
     main {
         padding: 14px
+    }
+
+    .form-grid,
+    .filter-form {
+        grid-template-columns: 1fr
     }
 
     table {

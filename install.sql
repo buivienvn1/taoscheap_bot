@@ -5,6 +5,7 @@ SET NAMES utf8mb4;
 SET time_zone = '+07:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS schema_migrations;
 DROP TABLE IF EXISTS notification_outbox;
 DROP TABLE IF EXISTS checkout_selections;
 DROP TABLE IF EXISTS purchase_requests;
@@ -21,6 +22,15 @@ DROP TABLE IF EXISTS settings;
 DROP TABLE IF EXISTS users;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE schema_migrations (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    migration_name VARCHAR(190) NOT NULL,
+    checksum CHAR(64) NULL,
+    executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_schema_migrations_name (migration_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE users (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -284,6 +294,12 @@ CREATE TABLE admins (
     PRIMARY KEY (id),
     UNIQUE KEY uq_admins_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO schema_migrations (migration_name, checksum) VALUES
+    ('001_init_schema.sql', NULL),
+    ('002_update_welcome_ui.sql', NULL),
+    ('003_add_multilingual_settings.sql', NULL),
+    ('004_product_quantity_checkout.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),

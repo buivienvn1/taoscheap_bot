@@ -1,12 +1,20 @@
 # Quy tắc cập nhật cơ sở dữ liệu
 
-1. Chỉ thêm file SQL mới theo thứ tự phiên bản, ví dụ `002_...sql`, `003_...sql`, `004_...sql`.
+1. Chỉ thêm file SQL mới theo thứ tự phiên bản, ví dụ `005_...sql`, `006_...sql`.
 2. Không sửa file migration đã chạy trên production; thay đổi tiếp theo phải nằm trong migration phiên bản mới.
 3. Không dùng `DROP TABLE`, `TRUNCATE` hoặc xóa dữ liệu lịch sử.
 4. Sao lưu database trước khi cập nhật.
-5. Chạy từng file bằng phpMyAdmin và kiểm tra kết quả trước khi chạy file tiếp theo.
-6. Thay đổi dữ liệu mặc định phải dùng câu lệnh có thể chạy lại an toàn.
-7. `install.sql` là schema cho cài đặt mới và phải được đồng bộ với migration mới nhất.
+5. Từ migration `005`, SQL phải tương thích PDO và không dùng `DELIMITER`, stored procedure hoặc lệnh dành riêng cho MySQL CLI.
+6. Deploy cPanel tự gọi `migrate.php`; có thể kiểm tra/chạy thủ công tại trang Cài đặt trong Admin.
+7. Thay đổi dữ liệu mặc định phải dùng câu lệnh có thể chạy lại an toàn.
+8. `install.sql` là schema cho cài đặt mới và phải được đồng bộ với migration mới nhất.
+9. Bảng `schema_migrations` lưu tên file, checksum và thời điểm thực thi; không được sửa/xóa lịch sử này trên production.
+
+## Cơ chế baseline 001–004
+
+- Các migration `001–004` có cú pháp cũ dành cho phpMyAdmin/MySQL CLI, bao gồm `DELIMITER` trong migration 004.
+- Runner tự nhận diện đầy đủ bảng/cột của schema 004 và ghi baseline `001–004` mà không chạy lại SQL, phù hợp database vừa import `install.sql`.
+- Nếu database cũ chưa đạt schema 004, runner dừng an toàn và yêu cầu nâng schema cũ trước; không tự đoán hoặc biến đổi dữ liệu tiền/kho.
 
 ## Migration 004: sản phẩm độc lập và checkout số lượng
 

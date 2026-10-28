@@ -44,6 +44,15 @@ final class Router
 
     private function handleCallback(array $callback): void
     {
+        $callbackId = (string) ($callback['id'] ?? '');
+        if ($callbackId !== '') {
+            try {
+                $this->telegram->answerCallback($callbackId);
+            } catch (Throwable $error) {
+                error_log('Telegram callback acknowledgement failed: ' . $error::class);
+            }
+        }
+
         $message = $callback['message'] ?? [];
         $chatId = (int) ($message['chat']['id'] ?? 0);
         $messageId = (int) ($message['message_id'] ?? 0);

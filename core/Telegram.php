@@ -400,6 +400,14 @@ final class Telegram
 
     private function request(string $method, array $payload): array
     {
+        $hasUpload = false;
+        foreach ($payload as $value) {
+            if ($value instanceof CURLFile) {
+                $hasUpload = true;
+                break;
+            }
+        }
+
         curl_reset($this->curl);
         curl_setopt_array($this->curl, [
             CURLOPT_URL => $this->apiUrl . $method,
@@ -409,7 +417,7 @@ final class Telegram
             CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
             CURLOPT_TCP_NODELAY => true,
             CURLOPT_CONNECTTIMEOUT => 3,
-            CURLOPT_TIMEOUT => 10,
+            CURLOPT_TIMEOUT => $hasUpload ? 30 : 10,
         ]);
         $body = curl_exec($this->curl);
         $error = curl_error($this->curl);
