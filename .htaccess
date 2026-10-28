@@ -1,0 +1,10 @@
+Options -Indexes
+RewriteEngine On
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+<FilesMatch "^(bootstrap\.php|install\.sql)$">
+    Require all denied
+</FilesMatch>
+
+RewriteRule ^(config|core|bot|suppliers|migrations|languages)/ - [F,L]

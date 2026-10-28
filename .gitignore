@@ -1,0 +1,32 @@
+# Hệ điều hành / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# File môi trường, khóa và chứng chỉ
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.crt
+
+# Dữ liệu runtime và bản sao lưu
+*.log
+*.sql.gz
+*.zip
+*.tar
+*.tar.gz
+cache/
+logs/
+tmp/
+temp/
+
+# Trạng thái đồng bộ của FTP Deploy Action
+.ftp-deploy-sync-state.json
+
+# Cấu hình production cục bộ (nếu tạo thêm)
+config/*.local.php
+config/*.production.php

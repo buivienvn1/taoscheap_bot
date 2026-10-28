@@ -1,0 +1,155 @@
+:root {
+    font-family: system-ui, sans-serif;
+    color: #18212f;
+    background: #f4f6f8
+}
+
+* {
+    box-sizing: border-box
+}
+
+body {
+    margin: 0
+}
+
+a {
+    color: #2563eb;
+    text-decoration: none
+}
+
+.layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: 100vh
+}
+
+aside {
+    background: #111827;
+    color: #fff;
+    padding: 24px 16px
+}
+
+aside a {
+    display: block;
+    color: #d1d5db;
+    padding: 9px 10px;
+    border-radius: 7px
+}
+
+aside a:hover {
+    background: #1f2937;
+    color: #fff
+}
+
+main {
+    padding: 24px;
+    overflow: auto
+}
+
+.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center
+}
+
+.card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 18px;
+    margin: 14px 0;
+    box-shadow: 0 1px 3px #0001
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px
+}
+
+.stat {
+    font-size: 28px;
+    font-weight: 700
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff
+}
+
+th,
+td {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top
+}
+
+input,
+textarea,
+select,
+button {
+    width: 100%;
+    padding: 9px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    margin: 4px 0 10px
+}
+
+button,
+.button {
+    background: #2563eb;
+    color: #fff;
+    border: 0;
+    cursor: pointer;
+    display: inline-block;
+    padding: 9px 14px;
+    border-radius: 6px;
+    width: auto
+}
+
+.danger {
+    background: #dc2626
+}
+
+.message {
+    background: #dcfce7;
+    padding: 10px;
+    border-radius: 6px
+}
+
+.login {
+    max-width: 380px;
+    margin: 12vh auto
+}
+
+.actions {
+    display: flex;
+    gap: 6px
+}
+
+.actions form {
+    margin: 0
+}
+
+@media(max-width:760px) {
+    .layout {
+        grid-template-columns: 1fr
+    }
+
+    aside {
+        position: static
+    }
+
+    aside a {
+        display: inline-block
+    }
+
+    main {
+        padding: 14px
+    }
+
+    table {
+        font-size: 13px
+    }
+}
