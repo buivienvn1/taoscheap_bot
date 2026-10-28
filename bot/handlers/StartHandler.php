@@ -13,7 +13,7 @@ final class StartHandler
         $settings = $this->settings();
 
         $shopName = ($settings['shop_name'] ?? '') ?: 'Taos Cheap';
-        $shopIntro = ($settings['shop_intro'] ?? '') ?: "Taos Cheap - kho sản phẩm số\nđáp ứng mọi nhu cầu\nhằng ngày của bạn.";
+        $shopIntro = ($settings['shop_intro'] ?? '') ?: "<b>Taos Cheap</b> - kho sản phẩm số\nđáp ứng mọi nhu cầu\nhằng ngày của bạn.";
         $owner = ($settings['owner_username'] ?? '') ?: '@taoscat';
         $channel = ($settings['channel_username'] ?? '') ?: '@taoscheap';
         $website = ($settings['website'] ?? '') ?: 'taoscheap.qthang.net';
@@ -23,9 +23,9 @@ final class StartHandler
             . "</b></blockquote>\n\n"
             . Helpers::escape($shopIntro) . "\n\n"
             . "<b>Tại sao chọn chúng tôi?</b>\n"
-            . "- Giao dịch an toàn ✅\n"
-            . "- Hỗ trợ nhanh chóng ✅\n"
-            . "- Sản phẩm chất lượng ✅\n\n"
+            . "- giao dịch an toàn ✅\n"
+            . "- hỗ trợ nhanh chóng ✅\n"
+            . "- sản phẩm chất lượng ✅\n\n"
             . "<b>Về chúng tôi:</b>\n"
             . 'owner - ' . Helpers::escape($owner) . "\n"
             . 'channel - ' . Helpers::escape($channel);
