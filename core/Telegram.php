@@ -53,18 +53,40 @@ final class Telegram
             $payload['reply_markup'] = json_encode(['inline_keyboard' => $keyboard], JSON_UNESCAPED_UNICODE);
         }
 
+        $reference = substr(hash('sha256', $photo), 0, 12);
         try {
             return $this->request('sendPhoto', $payload);
         } catch (RuntimeException $error) {
+            error_log(sprintf(
+                'QR URL send failed [ref=%s]: %s',
+                $reference,
+                $error->getMessage()
+            ));
             if (!str_contains($error->getMessage(), 'failed to get HTTP URL content')) {
                 throw $error;
             }
         }
 
-        $image = $this->downloadImage($photo);
+        $image = $this->downloadImage($photo, $reference);
         try {
             $payload['photo'] = new CURLFile($image['path'], $image['mime'], $image['name']);
-            return $this->request('sendPhoto', $payload);
+            $result = $this->request('sendPhoto', $payload);
+            error_log(sprintf(
+                'QR upload succeeded [ref=%s mime=%s size=%d]',
+                $reference,
+                $image['mime'],
+                $image['size']
+            ));
+            return $result;
+        } catch (Throwable $error) {
+            error_log(sprintf(
+                'QR upload failed [ref=%s mime=%s size=%d]: %s',
+                $reference,
+                $image['mime'],
+                $image['size'],
+                $error->getMessage()
+            ));
+            throw $error;
         } finally {
             @unlink($image['path']);
         }
@@ -105,7 +127,7 @@ final class Telegram
         return $payload;
     }
 
-    private function downloadImage(string $url): array
+    private function downloadImage(string $url, string $reference): array
     {
         $parts = parse_url($url);
         if (($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') !== 'img.vietqr.io') {
@@ -142,12 +164,25 @@ final class Telegram
         $success = curl_exec($curl);
         $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         $contentType = (string) curl_getinfo($curl, CURLINFO_CONTENT_TYPE);
+        $redirectUrl = (string) curl_getinfo($curl, CURLINFO_REDIRECT_URL);
+        $curlError = curl_error($curl);
+        $curlErrorNumber = curl_errno($curl);
         curl_close($curl);
         fclose($handle);
 
         $imageInfo = @getimagesize($file);
         if ($success === false || $status !== 200 || $size === 0 || $size > 5 * 1024 * 1024
             || !str_starts_with($contentType, 'image/') || $imageInfo === false) {
+            error_log(sprintf(
+                'QR download failed [ref=%s http=%d curl=%d mime=%s size=%d redirect=%s]: %s',
+                $reference,
+                $status,
+                $curlErrorNumber,
+                $contentType !== '' ? $contentType : 'none',
+                $size,
+                $redirectUrl !== '' ? 'yes' : 'no',
+                $curlError !== '' ? $curlError : 'invalid response'
+            ));
             @unlink($file);
             throw new RuntimeException('Unable to download a valid QR image.');
         }
@@ -155,10 +190,19 @@ final class Telegram
         $mime = (string) ($imageInfo['mime'] ?? $contentType);
         $extension = $mime === 'image/jpeg' ? 'jpg' : 'png';
 
+        error_log(sprintf(
+            'QR download succeeded [ref=%s http=%d mime=%s size=%d]',
+            $reference,
+            $status,
+            $mime,
+            $size
+        ));
+
         return [
             'path' => $file,
             'mime' => $mime,
             'name' => 'vietqr.' . $extension,
+            'size' => $size,
         ];
     }
 
