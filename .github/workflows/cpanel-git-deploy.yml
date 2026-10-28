@@ -36,89 +36,7 @@ jobs:
             fi
           done
 
-      - name: Request repository pull and log cPanel response
-        env:
-          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
-          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
-          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
-          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          host="${CPANEL_HOST#https://}"
-          host="${host#http://}"
-          host="${host%%/*}"
-          host="${host%%:*}"
-
-          response_file="$(mktemp)"
-          http_code="$(curl --silent --show-error \
-            --output "$response_file" \
-            --write-out '%{http_code}' \
-            --request GET \
-            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
-            --get \
-            --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
-            --data-urlencode "branch=main" \
-            "https://${host}:${CPANEL_PORT}/execute/VersionControl/update")"
-
-          echo "Pull HTTP status: ${http_code}"
-          echo "Pull API response:"
-          jq '.' "$response_file" || cat "$response_file"
-
-          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ] || \
-             [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
-            echo "::error::cPanel rejected the repository pull request."
-            exit 1
-          fi
-
-          task_id="$(jq -r '.data.task_id // .data.tasks[0].task_id // empty' "$response_file")"
-          task_count="$(jq -r '(.data.tasks // []) | length' "$response_file")"
-          if [ -z "$task_id" ] && [ "$task_count" = "0" ]; then
-            echo "::error::cPanel update response did not contain a pull task. Verify that branch=main is valid."
-            exit 1
-          fi
-
-          echo "cPanel queued pull task: ${task_id:-present in tasks array}"
-          echo "Waiting 30 seconds for the pull task before checking repository state."
-          sleep 30
-
-      - name: Verify repository HEAD before deployment
-        env:
-          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
-          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
-          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
-          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          host="${CPANEL_HOST#https://}"
-          host="${host#http://}"
-          host="${host%%/*}"
-          host="${host%%:*}"
-
-          for attempt in $(seq 1 24); do
-            response_file="$(mktemp)"
-            curl --silent --show-error --fail \
-              --output "$response_file" \
-              --request GET \
-              --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
-              --get \
-              --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
-              "https://${host}:${CPANEL_PORT}/execute/VersionControl/update"
-
-            pulled_sha="$(jq -r '.data.last_update.identifier // .data.repository_state.identifier // empty' "$response_file")"
-            echo "Pull check ${attempt}/24: expected=${GITHUB_SHA}, repository=${pulled_sha:-not available}"
-            if [ "$pulled_sha" = "$GITHUB_SHA" ]; then
-              echo "cPanel repository now contains the expected commit."
-              exit 0
-            fi
-            sleep 5
-          done
-
-          echo "::error::cPanel repository did not pull commit ${GITHUB_SHA} within 2 minutes."
-          exit 1
-
-      - name: Request one deployment and log cPanel response
+      - name: Create and run cPanel deployment task
         env:
           CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
           CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
@@ -152,8 +70,26 @@ jobs:
             exit 1
           fi
 
-          echo "cPanel accepted the asynchronous deployment request."
-          sleep 30
+          sse_url="$(jq -r '.data.sse_url // empty' "$response_file")"
+          task_id="$(jq -r '.data.task_id // empty' "$response_file")"
+          if [ -z "$sse_url" ] || [ -z "$task_id" ]; then
+            echo "::error::Deployment response did not contain sse_url/task_id."
+            exit 1
+          fi
+
+          echo "Running cPanel task ${task_id} through ${sse_url}"
+          sse_log="$(mktemp)"
+          curl --silent --show-error --no-buffer \
+            --max-time 180 \
+            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            "https://${host}:${CPANEL_PORT}${sse_url}" \
+            | tee "$sse_log" || true
+
+          echo "cPanel task stream ended."
+          if grep -Eqi '(^|[^a-z])(error|failed|failure)([^a-z]|$)' "$sse_log"; then
+            echo "::error::The cPanel deployment task reported an error."
+            exit 1
+          fi
 
       - name: Verify deployed commit on production
         env:
@@ -161,16 +97,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deployed_sha="$(curl --silent --show-error --fail \
-            --header 'Cache-Control: no-cache' \
-            "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}" 2>/dev/null \
-            | tr -d '\r\n[:space:]' || true)"
+          for attempt in $(seq 1 12); do
+            deployed_sha="$(curl --silent --show-error --fail \
+              --header 'Cache-Control: no-cache' \
+              "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" 2>/dev/null \
+              | tr -d '\r\n[:space:]' || true)"
 
-          echo "Expected SHA: ${GITHUB_SHA}"
-          echo "Deployed SHA: ${deployed_sha:-not available}"
-          if [ "$deployed_sha" != "$GITHUB_SHA" ]; then
-            echo "::error::cPanel accepted the API requests but production does not contain commit ${GITHUB_SHA}. Inspect the JSON responses above for task identifiers and queue metadata."
-            exit 1
-          fi
+            echo "Verification ${attempt}/12: expected=${GITHUB_SHA}, deployed=${deployed_sha:-not available}"
+            if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
+              echo "Production deployment verified successfully."
+              exit 0
+            fi
+            sleep 5
+          done
 
-          echo "Production deployment verified successfully."
+          echo "::error::Production does not contain commit ${GITHUB_SHA}."
+          exit 1
