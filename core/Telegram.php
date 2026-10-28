@@ -5,10 +5,17 @@ declare(strict_types=1);
 final class Telegram
 {
     private string $apiUrl;
+    private CurlHandle $curl;
 
     public function __construct(string $token)
     {
         $this->apiUrl = 'https://api.telegram.org/bot' . $token . '/';
+        $this->curl = curl_init();
+    }
+
+    public function __destruct()
+    {
+        curl_close($this->curl);
     }
 
     public function sendMessage(int|string $chatId, string $text, array $keyboard = []): array
@@ -59,17 +66,19 @@ final class Telegram
 
     private function request(string $method, array $payload): array
     {
-        $curl = curl_init($this->apiUrl . $method);
-        curl_setopt_array($curl, [
+        curl_reset($this->curl);
+        curl_setopt_array($this->curl, [
+            CURLOPT_URL => $this->apiUrl . $method,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $payload,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+            CURLOPT_TCP_NODELAY => true,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 10,
         ]);
-        $body = curl_exec($curl);
-        $error = curl_error($curl);
-        curl_close($curl);
+        $body = curl_exec($this->curl);
+        $error = curl_error($this->curl);
 
         if ($body === false) {
             throw new RuntimeException('Telegram API error: ' . $error);

@@ -34,7 +34,15 @@ final class ProductHandler
             $this->list($chatId, $messageId);
             return;
         }
-        $variants = $this->db->fetchAll("SELECT v.*, CASE WHEN v.supplier_type = 'api' THEN 1 ELSE (SELECT COUNT(*) FROM stocks s WHERE s.variant_id = v.id AND s.is_sold = 0) END stock FROM variants v WHERE v.product_id = ? AND v.status = 1 ORDER BY v.sort_order, v.id", [$productId]);
+        $variants = $this->db->fetchAll(
+            "SELECT v.*, CASE WHEN v.supplier_type = 'api' THEN 1 ELSE COUNT(s.id) END stock
+             FROM variants v
+             LEFT JOIN stocks s ON s.variant_id = v.id AND s.is_sold = 0
+             WHERE v.product_id = ? AND v.status = 1
+             GROUP BY v.id
+             ORDER BY v.sort_order, v.id",
+            [$productId]
+        );
         $text = '<b>CHI TIẾT SẢN PHẨM</b>' . "\n\n<b>Tên:</b> " . Helpers::escape($product['name']) . "\n" . Helpers::escape($product['description']);
         if ($product['features']) {
             $text .= "\n\n<b>Tính năng nổi bật 🌟</b>\n" . Helpers::escape($product['features']);

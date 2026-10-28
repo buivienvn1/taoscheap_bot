@@ -30,9 +30,9 @@ final class Router
         $message = $update['message'] ?? null;
         if (!is_array($message) || !isset($message['chat']['id'], $message['from'])) return;
 
-        $user = $this->upsertUser($message['from']);
         $text = trim((string) ($message['text'] ?? ''));
         if ($text === '/start' || str_starts_with($text, '/start ')) {
+            $this->upsertUser($message['from']);
             $this->start->show((int) $message['chat']['id']);
             return;
         }
@@ -41,22 +41,23 @@ final class Router
 
     private function handleCallback(array $callback): void
     {
-        $this->telegram->answerCallback((string) $callback['id']);
         $message = $callback['message'] ?? [];
         $chatId = (int) ($message['chat']['id'] ?? 0);
         $messageId = (int) ($message['message_id'] ?? 0);
         if ($chatId === 0 || $messageId === 0) return;
 
-        $user = $this->upsertUser($callback['from']);
         $data = (string) ($callback['data'] ?? 'start');
         if ($data === 'start') $this->start->show($chatId, $messageId);
         elseif ($data === 'products') $this->products->list($chatId, $messageId);
-        elseif ($data === 'deposit') $this->deposit->show($chatId, (int) $user['id']);
-        elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user);
-        elseif ($data === 'history') $this->profile->history($chatId, $messageId, (int) $user['id']);
         elseif ($data === 'support') $this->support->show($chatId, $messageId);
         elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) substr($data, 8));
-        elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $user, (int) substr($data, 4));
+        else {
+            $user = $this->upsertUser($callback['from']);
+            if ($data === 'deposit') $this->deposit->show($chatId, (int) $user['id']);
+            elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user);
+            elseif ($data === 'history') $this->profile->history($chatId, $messageId, (int) $user['id']);
+            elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $user, (int) substr($data, 4));
+        }
     }
 
     private function upsertUser(array $from): array
