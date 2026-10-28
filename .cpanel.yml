@@ -5,4 +5,4 @@ deployment:
     - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/app.php" || /bin/cp config/app.php "$HOME/taoscheap.qthang.net/config/app.php"
     - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/database.php" || /bin/cp config/database.php "$HOME/taoscheap.qthang.net/config/database.php"
     - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/bank.php" || /bin/cp config/bank.php "$HOME/taoscheap.qthang.net/config/bank.php"
-    - /usr/bin/rsync -a --exclude='.git/' --exclude='.github/' --exclude='.cpanel.yml' --exclude='plans/' --exclude='config/app.php' --exclude='config/database.php' --exclude='config/bank.php' ./ "$HOME/taoscheap.qthang.net/"
+    - /usr/bin/rsync -a --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --exclude='.git/' --exclude='.github/' --exclude='.cpanel.yml' --exclude='plans/' --exclude='config/app.php' --exclude='config/database.php' --exclude='config/bank.php' ./ "$HOME/taoscheap.qthang.net/"
