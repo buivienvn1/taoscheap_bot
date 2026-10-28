@@ -10,13 +10,51 @@ final class DepositHandler
 
     public function show(int $chatId, int $messageId, int $userId, Language $lang): void
     {
+        $userRef = substr(hash('sha256', 'deposit-user:' . $userId), 0, 12);
+        $statusRows = $this->db->fetchAll(
+            'SELECT status, COUNT(*) AS total FROM deposits WHERE user_id = ? GROUP BY status',
+            [$userId]
+        );
+        $statusCounts = [
+            'pending' => 0,
+            'completed' => 0,
+            'cancelled' => 0,
+        ];
+        foreach ($statusRows as $statusRow) {
+            $status = (string) ($statusRow['status'] ?? '');
+            if (array_key_exists($status, $statusCounts)) {
+                $statusCounts[$status] = (int) $statusRow['total'];
+            }
+        }
+
         $deposit = $this->db->fetch("SELECT * FROM deposits WHERE user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1", [$userId]);
+        error_log(sprintf(
+            'Deposit lookup [user_ref=%s pending=%d completed=%d cancelled=%d selected_id=%s]',
+            $userRef,
+            $statusCounts['pending'],
+            $statusCounts['completed'],
+            $statusCounts['cancelled'],
+            $deposit === null ? 'none' : (string) $deposit['id']
+        ));
+
         if ($deposit === null) {
             do {
                 $code = Helpers::randomCode();
             } while ($this->db->fetch('SELECT id FROM deposits WHERE code = ?', [$code]) !== null);
             $this->db->execute("INSERT INTO deposits (user_id, code, status) VALUES (?, ?, 'pending')", [$userId, $code]);
-            $deposit = ['code' => $code];
+            $depositId = $this->db->lastInsertId();
+            $deposit = ['id' => $depositId, 'code' => $code];
+            error_log(sprintf(
+                'Deposit created [user_ref=%s deposit_id=%d]',
+                $userRef,
+                $depositId
+            ));
+        } else {
+            error_log(sprintf(
+                'Deposit reused [user_ref=%s deposit_id=%d]',
+                $userRef,
+                (int) $deposit['id']
+            ));
         }
         $bank = $this->vietQr->transferDetails();
         $caption = '<blockquote><b>' . $lang->get('deposit_title') . "</b></blockquote>\n\n"
