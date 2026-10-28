@@ -85,11 +85,7 @@ jobs:
             "https://${host}:${CPANEL_PORT}${sse_url}" \
             | tee "$sse_log" || true
 
-          echo "cPanel task stream ended."
-          if grep -Eqi '(^|[^a-z])(error|failed|failure)([^a-z]|$)' "$sse_log"; then
-            echo "::error::The cPanel deployment task reported an error."
-            exit 1
-          fi
+          echo "cPanel task stream ended; production SHA verification will determine deployment success."
 
       - name: Verify deployed commit on production
         env:
