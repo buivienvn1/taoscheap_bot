@@ -58,7 +58,8 @@ jobs:
             --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
             --get \
             --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
-            "https://${host}:${CPANEL_PORT}/execute/VersionControl/pull")"
+            --data-urlencode "branch=main" \
+            "https://${host}:${CPANEL_PORT}/execute/VersionControl/update")"
 
           echo "Pull HTTP status: ${http_code}"
           echo "Pull API response:"
@@ -70,13 +71,14 @@ jobs:
             exit 1
           fi
 
-          task_id="$(jq -r '.data.task_id // empty' "$response_file")"
-          if [ -z "$task_id" ]; then
-            echo "::error::cPanel pull response did not contain a task_id."
+          task_id="$(jq -r '.data.task_id // .data.tasks[0].task_id // empty' "$response_file")"
+          task_count="$(jq -r '(.data.tasks // []) | length' "$response_file")"
+          if [ -z "$task_id" ] && [ "$task_count" = "0" ]; then
+            echo "::error::cPanel update response did not contain a pull task. Verify that branch=main is valid."
             exit 1
           fi
 
-          echo "cPanel queued pull task: ${task_id}"
+          echo "cPanel queued pull task: ${task_id:-present in tasks array}"
           echo "Waiting 30 seconds for the pull task before checking repository state."
           sleep 30
 
