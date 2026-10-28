@@ -1,8 +1,8 @@
 ---
 deployment:
   tasks:
-    - /bin/mkdir -p "$HOME/public_html/config"
-    - /usr/bin/test -f "$HOME/public_html/config/app.php" || /bin/cp config/app.php "$HOME/public_html/config/app.php"
-    - /usr/bin/test -f "$HOME/public_html/config/database.php" || /bin/cp config/database.php "$HOME/public_html/config/database.php"
-    - /usr/bin/test -f "$HOME/public_html/config/bank.php" || /bin/cp config/bank.php "$HOME/public_html/config/bank.php"
-    - /usr/bin/rsync -a --delete --exclude='.git/' --exclude='.github/' --exclude='.cpanel.yml' --exclude='plans/' --exclude='config/app.php' --exclude='config/database.php' --exclude='config/bank.php' ./ "$HOME/public_html/"
+    - /bin/mkdir -p "$HOME/taoscheap.qthang.net/config"
+    - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/app.php" || /bin/cp config/app.php "$HOME/taoscheap.qthang.net/config/app.php"
+    - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/database.php" || /bin/cp config/database.php "$HOME/taoscheap.qthang.net/config/database.php"
+    - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/bank.php" || /bin/cp config/bank.php "$HOME/taoscheap.qthang.net/config/bank.php"
+    - /usr/bin/rsync -a --exclude='.git/' --exclude='.github/' --exclude='.cpanel.yml' --exclude='plans/' --exclude='config/app.php' --exclude='config/database.php' --exclude='config/bank.php' ./ "$HOME/taoscheap.qthang.net/"

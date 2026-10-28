@@ -31,8 +31,8 @@ Hệ thống hỗ trợ 2 giải pháp tự động hóa khi bạn push code lê
 ### Cách 1: Dùng cPanel Git™ Version Control (Khuyên Dùng)
 1. Trong cPanel, tìm mục **Git™ Version Control** -> Nhấn **Create**.
 2. Nhập URL repository: `https://github.com/buivienvn1/taoscheap_bot.git`.
-3. Nhập đường dẫn thư mục lưu repository (ví dụ: `repositories/taoscheap_bot`).
-4. Trong source code đã có sẵn file `.cpanel.yml` định nghĩa nhiệm vụ sao chép code ra `public_html`.
+3. Nhập đường dẫn thư mục lưu repository, ví dụ `/home/qthangne/taoscheap_bot`. Đây chỉ là nơi chứa bản clone Git, không phải Document Root của website.
+4. File `.cpanel.yml` sẽ tự động sao chép code sang Document Root của subdomain: `/home/qthangne/taoscheap.qthang.net`.
 5. Vào tab **Manage** của repository trong cPanel -> chọn tab **Deploy HEAD Commit** để copy **Webhook URL**.
 6. Vào GitHub repository -> **Settings** -> **Webhooks** -> **Add webhook**:
    - **Payload URL**: Dán URL Webhook của cPanel.
