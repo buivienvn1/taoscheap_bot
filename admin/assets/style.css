@@ -93,6 +93,7 @@ select {
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     margin: 4px 0 10px;
+    box-sizing: border-box;
     font: inherit
 }
 
@@ -251,7 +252,14 @@ input[type="submit"]:disabled {
     display: grid;
     grid-template-columns: minmax(180px, 1fr) minmax(130px, 180px) auto;
     gap: 10px;
-    align-items: end
+    align-items: center
+}
+
+.filter-form select,
+.filter-form button {
+    height: 36px;
+    margin: 0;
+    box-sizing: border-box
 }
 
 .stock-content {
@@ -281,6 +289,10 @@ input[type="submit"]:disabled {
     .form-grid,
     .filter-form {
         grid-template-columns: 1fr
+    }
+
+    .filter-form button {
+        width: 100%
     }
 
     table {
