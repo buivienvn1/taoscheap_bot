@@ -36,7 +36,7 @@ jobs:
             fi
           done
 
-      - name: Request repository update and log cPanel response
+      - name: Request repository pull and log cPanel response
         env:
           CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
           CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
@@ -58,20 +58,63 @@ jobs:
             --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
             --get \
             --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
-            "https://${host}:${CPANEL_PORT}/execute/VersionControl/update")"
+            "https://${host}:${CPANEL_PORT}/execute/VersionControl/pull")"
 
-          echo "Update HTTP status: ${http_code}"
-          echo "Update API response:"
+          echo "Pull HTTP status: ${http_code}"
+          echo "Pull API response:"
           jq '.' "$response_file" || cat "$response_file"
 
           if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ] || \
              [ "$(jq -r '.status // 0' "$response_file")" != "1" ]; then
-            echo "::error::cPanel rejected the repository update request."
+            echo "::error::cPanel rejected the repository pull request."
             exit 1
           fi
 
-          echo "cPanel accepted the asynchronous update request; waiting 30 seconds before deployment."
+          task_id="$(jq -r '.data.task_id // empty' "$response_file")"
+          if [ -z "$task_id" ]; then
+            echo "::error::cPanel pull response did not contain a task_id."
+            exit 1
+          fi
+
+          echo "cPanel queued pull task: ${task_id}"
+          echo "Waiting 30 seconds for the pull task before checking repository state."
           sleep 30
+
+      - name: Verify repository HEAD before deployment
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          host="${CPANEL_HOST#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          host="${host%%:*}"
+
+          for attempt in $(seq 1 24); do
+            response_file="$(mktemp)"
+            curl --silent --show-error --fail \
+              --output "$response_file" \
+              --request GET \
+              --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+              --get \
+              --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}" \
+              "https://${host}:${CPANEL_PORT}/execute/VersionControl/update"
+
+            pulled_sha="$(jq -r '.data.last_update.identifier // .data.repository_state.identifier // empty' "$response_file")"
+            echo "Pull check ${attempt}/24: expected=${GITHUB_SHA}, repository=${pulled_sha:-not available}"
+            if [ "$pulled_sha" = "$GITHUB_SHA" ]; then
+              echo "cPanel repository now contains the expected commit."
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "::error::cPanel repository did not pull commit ${GITHUB_SHA} within 2 minutes."
+          exit 1
 
       - name: Request one deployment and log cPanel response
         env:
