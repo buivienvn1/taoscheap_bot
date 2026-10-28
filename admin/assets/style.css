@@ -85,31 +85,73 @@ td {
     vertical-align: top
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 textarea,
-select,
-button {
+select {
     width: 100%;
     padding: 9px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
-    margin: 4px 0 10px
+    margin: 4px 0 10px;
+    font: inherit
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer
 }
 
 button,
-.button {
+.button,
+input[type="submit"] {
+    height: 36px;
     background: #2563eb;
     color: #fff;
     border: 0;
     cursor: pointer;
-    display: inline-block;
-    padding: 9px 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 14px;
     border-radius: 6px;
-    width: auto
+    margin: 0;
+    width: auto;
+    font: 500 13px/1 system-ui, sans-serif;
+    vertical-align: middle;
+    white-space: nowrap
+}
+
+button:hover,
+.button:hover,
+input[type="submit"]:hover {
+    background: #1d4ed8;
+    color: #fff
 }
 
 .danger {
     background: #dc2626
+}
+
+.danger:hover {
+    background: #b91c1c
+}
+
+button:focus-visible,
+.button:focus-visible,
+input[type="submit"]:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px
+}
+
+button:disabled,
+.button.disabled,
+input[type="submit"]:disabled {
+    background: #94a3b8;
+    cursor: not-allowed;
+    opacity: .7;
+    pointer-events: none
 }
 
 .message {
@@ -124,12 +166,24 @@ button,
 }
 
 .actions {
-    display: flex;
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 6px
 }
 
 .actions form {
-    margin: 0
+    display: inline-flex;
+    margin: 0;
+    padding: 0
+}
+
+.actions button,
+.actions .button {
+    height: 32px;
+    padding: 0 12px;
+    margin: 0;
+    font-size: 13px
 }
 
 .form-grid {
@@ -145,19 +199,19 @@ button,
 }
 
 .inline-check {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin: 8px 0 14px
-}
-
-.inline-check input {
-    width: auto;
-    margin: 0
+    margin: 10px 0 14px;
+    cursor: pointer
 }
 
 .secondary {
     background: #64748b
+}
+
+.secondary:hover {
+    background: #475569
 }
 
 .badge {

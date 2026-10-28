@@ -107,4 +107,9 @@ return [
     'order_status_completed' => 'Đã giao',
     'order_status_failed' => 'Kết thúc',
     'delivery_item' => 'Sản phẩm :number',
+    'description_empty' => 'Chưa có mô tả.',
+    'notify_stock_button' => '🔔 Báo khi có hàng',
+    'notify_stock_subscribed' => '✅ Đã đăng ký nhận tin',
+    'restock_alert_message' => '📦 Sản phẩm <b>:product</b> vừa có thêm hàng mới! Nhấn nút bên dưới để xem và đặt hàng.',
+    'view_product_button' => '🔍 Xem sản phẩm',
 ];

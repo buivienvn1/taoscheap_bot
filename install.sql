@@ -6,6 +6,7 @@ SET time_zone = '+07:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS schema_migrations;
+DROP TABLE IF EXISTS stock_subscriptions;
 DROP TABLE IF EXISTS notification_outbox;
 DROP TABLE IF EXISTS checkout_selections;
 DROP TABLE IF EXISTS purchase_requests;
@@ -201,6 +202,24 @@ CREATE TABLE checkout_selections (
         ON UPDATE RESTRICT ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE stock_subscriptions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    status ENUM('pending', 'notified') NOT NULL DEFAULT 'pending',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    notified_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_stock_subscriptions_user_product (user_id, product_id),
+    KEY idx_stock_subscriptions_pending (product_id, status),
+    CONSTRAINT fk_stock_subscriptions_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT fk_stock_subscriptions_product
+        FOREIGN KEY (product_id) REFERENCES products(id)
+        ON UPDATE RESTRICT ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE notification_outbox (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
@@ -299,7 +318,8 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('001_init_schema.sql', NULL),
     ('002_update_welcome_ui.sql', NULL),
     ('003_add_multilingual_settings.sql', NULL),
-    ('004_product_quantity_checkout.sql', NULL);
+    ('004_product_quantity_checkout.sql', NULL),
+    ('005_stock_subscriptions.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),

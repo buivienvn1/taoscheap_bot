@@ -74,6 +74,9 @@ final class Router
         elseif ($data === 'products') $this->products->list($chatId, $messageId, $lang);
         elseif ($data === 'support') $this->support->show($chatId, $messageId, $lang);
         elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) $user['id'], (int) substr($data, 8), $lang);
+        elseif (str_starts_with($data, 'notify_stock:')) {
+            $this->products->subscribeToStock($chatId, $messageId, (int) $user['id'], (int) substr($data, 13), $lang);
+        }
         elseif (str_starts_with($data, 'qty:')) {
             $parts = explode(':', $data, 4);
             if (count($parts) === 4) {

@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $productId = max(0, (int) ($_POST['product_id'] ?? 0));
     $product = $db->fetch(
-        "SELECT p.source_variant_id FROM products p JOIN variants v ON v.id=p.source_variant_id WHERE p.id=? AND v.supplier_type='manual'",
+        "SELECT p.id,p.name,p.source_variant_id FROM products p JOIN variants v ON v.id=p.source_variant_id WHERE p.id=? AND v.supplier_type='manual'",
         [$productId]
     );
     if ($product === null) {
@@ -68,7 +68,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $count++;
         }
     });
-    redirectAdmin('stocks', 'Đã nhập ' . $count . ' dòng; bỏ qua ' . $duplicate . ' dòng trùng.');
+
+    $notified = 0;
+    if ($count > 0) {
+        $subscribers = $db->fetchAll(
+            "SELECT ss.id,u.telegram_id,u.language
+             FROM stock_subscriptions ss
+             JOIN users u ON u.id=ss.user_id
+             WHERE ss.product_id=? AND ss.status='pending'",
+            [$productId]
+        );
+        foreach ($subscribers as $subscriber) {
+            $languageCode = in_array($subscriber['language'], ['vi', 'en'], true) ? $subscriber['language'] : 'vi';
+            $language = new Language($languageCode);
+            $text = $language->get('restock_alert_message', [
+                'product' => Helpers::escape((string) $product['name']),
+            ]);
+            try {
+                $telegram->sendMessage((int) $subscriber['telegram_id'], $text, [[[
+                    'text' => $language->get('view_product_button'),
+                    'callback_data' => 'product:' . $productId,
+                ]]]);
+                $db->execute(
+                    "UPDATE stock_subscriptions SET status='notified',notified_at=NOW() WHERE id=? AND status='pending'",
+                    [$subscriber['id']]
+                );
+                $notified++;
+            } catch (Throwable $error) {
+                error_log('Restock notification failed: ' . $error::class);
+            }
+        }
+    }
+    redirectAdmin('stocks', 'Đã nhập ' . $count . ' dòng; bỏ qua ' . $duplicate . ' dòng trùng; đã báo ' . $notified . ' khách hàng.');
 }
 
 $products = $db->fetchAll(

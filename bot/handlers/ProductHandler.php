@@ -88,6 +88,32 @@ final class ProductHandler
         $this->render($chatId, $messageId, $userId, $productId, (int) $selection['quantity'], (int) $selection['version'], $lang);
     }
 
+    public function subscribeToStock(int $chatId, int $messageId, int $userId, int $productId, Language $lang): void
+    {
+        $product = $this->db->fetch(
+            "SELECT p.id,v.supplier_type,
+                    CASE WHEN v.supplier_type = 'manual' THEN COALESCE(stock.available, 0) ELSE 0 END stock
+             FROM products p
+             JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
+             LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) stock ON stock.variant_id = v.id
+             WHERE p.id = ? AND p.status = 1",
+            [$productId]
+        );
+        if ($product === null) {
+            $this->list($chatId, $messageId, $lang);
+            return;
+        }
+        if ((int) $product['stock'] === 0 && $product['supplier_type'] === 'manual') {
+            $this->db->execute(
+                "INSERT INTO stock_subscriptions(user_id,product_id,status,notified_at)
+                 VALUES(?,?,'pending',NULL)
+                 ON DUPLICATE KEY UPDATE status='pending',notified_at=NULL,created_at=CURRENT_TIMESTAMP",
+                [$userId, $productId]
+            );
+        }
+        $this->detail($chatId, $messageId, $userId, $productId, $lang);
+    }
+
     private function selection(int $userId, int $messageId, int $productId): array
     {
         return $this->db->transaction(function (Database $db) use ($userId, $messageId, $productId): array {
@@ -133,36 +159,64 @@ final class ProductHandler
             return;
         }
         $stock = (int) $product['stock'];
+        $displayQuantity = $stock > 0 ? min($quantity, $stock) : 1;
+        if ($displayQuantity !== $quantity) {
+            $this->db->execute(
+                'UPDATE checkout_selections SET quantity=? WHERE user_id=? AND message_id=? AND product_id=? AND version=?',
+                [$displayQuantity, $userId, $messageId, $productId, $version]
+            );
+            $quantity = $displayQuantity;
+        }
         $total = number_format((float) $product['price'] * $quantity, 2, '.', '');
-        $description = trim((string) $product['description']);
-        $features = trim((string) $product['features']);
-        if ($features !== '') {
-            $description .= ($description === '' ? '' : "\n") . $features;
+        $descriptionLines = preg_split('/\R/u', trim((string) $product['description'])) ?: [];
+        $featureLines = preg_split('/\R/u', trim((string) $product['features'])) ?: [];
+        $detailLines = array_values(array_filter(
+            array_merge($descriptionLines, $featureLines),
+            static fn (string $line): bool => trim($line) !== ''
+        ));
+        $description = implode("\n", array_map(
+            static fn (string $line): string => '╰ ' . Helpers::escape(trim($line)),
+            $detailLines
+        ));
+        if ($description === '') {
+            $description = '╰ ' . $lang->get('description_empty');
         }
         $text = '<blockquote><b>' . $lang->get('product_detail') . "</b></blockquote>\n\n"
-            . '<b>## ' . Helpers::escape($product['name']) . "</b>\n"
+            . '<b>🏷️ ' . Helpers::escape($product['name']) . "</b>\n"
             . '╰ ' . $lang->get('price') . ': <b>' . Helpers::money($product['price']) . "</b>\n"
             . '╰ ' . $lang->get('stock') . ': <b>' . $stock . "</b>\n"
             . '╰ ' . $lang->get('sold') . ': <b>' . (int) $product['sold'] . "</b>\n\n"
-            . '<b>' . $lang->get('description') . "</b>\n" . Helpers::escape($description) . "\n\n"
+            . '<b>' . $lang->get('description') . "</b>\n" . $description . "\n\n"
             . '<b>' . $lang->get('order_details') . "</b>\n"
-            . $lang->get('quantity') . ': <b>' . $quantity . "</b>\n"
-            . $lang->get('total') . ': <b>' . Helpers::money($total) . '</b>';
+            . '╰ ' . $lang->get('quantity') . ': <b>' . $quantity . "</b>\n"
+            . '╰ ' . $lang->get('total') . ': <b>' . Helpers::money($total) . '</b>';
 
-        $base = 'qty:' . $productId . ':' . $version . ':';
-        $keyboard = [[
-            ['text' => '➖', 'callback_data' => $base . 'dec'],
-            ['text' => $lang->get('quantity_button', ['quantity' => $quantity]), 'callback_data' => $base . 'show'],
-            ['text' => '➕', 'callback_data' => $base . 'inc'],
-        ]];
-        $quick = [];
-        if ($stock >= 5) $quick[] = ['text' => $lang->get('select_five'), 'callback_data' => $base . 'five'];
-        if ($stock >= 10) $quick[] = ['text' => $lang->get('select_ten'), 'callback_data' => $base . 'ten'];
-        if ($quick !== []) $keyboard[] = $quick;
-        if ($product['supplier_type'] === 'manual' && $stock > 0) {
+        $keyboard = [];
+        if ($stock > 0) {
+            $base = 'qty:' . $productId . ':' . $version . ':';
+            $keyboard[] = [
+                ['text' => '➖', 'callback_data' => $base . 'dec'],
+                ['text' => $lang->get('quantity_button', ['quantity' => $quantity]), 'callback_data' => $base . 'show'],
+                ['text' => '➕', 'callback_data' => $base . 'inc'],
+            ];
+            $quick = [];
+            if ($stock >= 5) $quick[] = ['text' => $lang->get('select_five'), 'callback_data' => $base . 'five'];
+            if ($stock >= 10) $quick[] = ['text' => $lang->get('select_ten'), 'callback_data' => $base . 'ten'];
+            if ($quick !== []) $keyboard[] = $quick;
+            if ($product['supplier_type'] === 'manual') {
+                $keyboard[] = [[
+                    'text' => $lang->get('checkout'),
+                    'callback_data' => 'checkout:' . $productId . ':' . $version,
+                ]];
+            }
+        } elseif ($product['supplier_type'] === 'manual') {
+            $subscription = $this->db->fetch(
+                "SELECT id FROM stock_subscriptions WHERE user_id=? AND product_id=? AND status='pending'",
+                [$userId, $productId]
+            );
             $keyboard[] = [[
-                'text' => $lang->get('checkout'),
-                'callback_data' => 'checkout:' . $productId . ':' . $version,
+                'text' => $lang->get($subscription === null ? 'notify_stock_button' : 'notify_stock_subscribed'),
+                'callback_data' => 'notify_stock:' . $productId,
             ]];
         }
         $keyboard[] = [

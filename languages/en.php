@@ -107,4 +107,9 @@ return [
     'order_status_completed' => 'Delivered',
     'order_status_failed' => 'Closed',
     'delivery_item' => 'Item :number',
+    'description_empty' => 'No description available.',
+    'notify_stock_button' => '🔔 Notify when in stock',
+    'notify_stock_subscribed' => '✅ Restock alert enabled',
+    'restock_alert_message' => '📦 Product <b>:product</b> has just been restocked! Tap below to view and order.',
+    'view_product_button' => '🔍 View product',
 ];

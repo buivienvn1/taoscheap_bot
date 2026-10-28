@@ -17,6 +17,15 @@
 - Nút URL phải dùng chính URL QR đã tạo cho giao dịch, không tạo lại mã hoặc URL khác trong nhánh fallback.
 - Văn bản và callback của nút điều hướng phải lấy từ file ngôn ngữ.
 
+## Giao diện Web và thành phần UI
+
+- Mọi thành phần có vai trò nút bấm (`button`, liên kết mang kiểu nút và `input[type="submit"]`) phải dùng chung quy chuẩn về chiều cao, padding, cỡ chữ, line-height, bo góc và căn giữa nội dung.
+- Nhóm thao tác phải dùng layout flex có căn giữa và khoảng cách nhất quán; form nằm trong nhóm thao tác phải dùng `display: inline-flex` và không được tạo margin làm lệch hàng nút.
+- Không áp dụng `width: 100%` cho toàn bộ thẻ `input`; phải loại trừ checkbox, radio và các loại input có kích thước nội tại.
+- Nút chính, phụ, nguy hiểm và trạng thái vô hiệu hóa phải có class ngữ nghĩa, màu sắc và trạng thái hover/focus nhất quán; không tạo style riêng lẻ ngay trong template.
+- Tài nguyên CSS và JavaScript của giao diện quản trị phải có cache-busting dựa trên phiên bản file hoặc commit để bản triển khai mới có hiệu lực ngay.
+- Giao diện phải được kiểm tra ở kích thước desktop và mobile, đặc biệt với bảng dữ liệu, nhóm nút và form nhiều cột.
+
 ## Thanh toán
 
 - Không tạo mã thanh toán mới khi vẫn còn bản ghi `pending` phù hợp với khóa nghiệp vụ đã định nghĩa.
@@ -27,6 +36,7 @@
 ## Kiểm tra trước khi hoàn tất
 
 - Kiểm tra đủ tiếng Việt và tiếng Anh.
+- Kiểm tra tính đồng đều của nút bấm, checkbox/radio, nhóm thao tác và khả năng hiển thị trên mobile khi thay đổi giao diện web.
 - Kiểm tra cả nhánh gửi ảnh thành công và fallback không có ảnh.
 - Kiểm tra Telegram HTML hợp lệ và dữ liệu động đã được escape.
 - Kiểm tra nút mở QR dùng URL hợp lệ và các nút điều hướng vẫn hoạt động.
