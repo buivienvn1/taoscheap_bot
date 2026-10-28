@@ -26,9 +26,12 @@ final class OrderHandler
             return;
         }
 
-        $paymentCode = $this->uniqueCode();
-        $orderCode = Helpers::orderCode();
-        $this->db->execute("INSERT INTO orders (order_code, payment_code, user_id, variant_id, amount, payment_method, status) VALUES (?, ?, ?, ?, ?, 'vietqr_direct', 'pending')", [$orderCode, $paymentCode, $user['id'], $variantId, $variant['price']]);
+        $order = $this->pendingDirectOrder(
+            (int) $user['id'],
+            $variantId,
+            (string) $variant['price']
+        );
+        $paymentCode = (string) $order['payment_code'];
         $bank = $this->vietQr->transferDetails();
         $caption = '<blockquote><b>' . $lang->get('payment_title') . "</b></blockquote>\n\n"
             . $lang->get('product') . ': ' . Helpers::escape($variant['product_name'] . ' - ' . $variant['name']) . "\n"
@@ -77,11 +80,46 @@ final class OrderHandler
         });
     }
 
-    private function uniqueCode(): string
+    private function pendingDirectOrder(int $userId, int $variantId, string $amount): array
     {
-        do {
-            $code = Helpers::randomCode();
-        } while ($this->db->fetch('SELECT id FROM orders WHERE payment_code = ?', [$code]) !== null);
-        return $code;
+        return $this->db->transaction(function (Database $db) use ($userId, $variantId, $amount): array {
+            $db->fetch('SELECT id FROM users WHERE id = ? FOR UPDATE', [$userId]);
+            $order = $db->fetch(
+                "SELECT * FROM orders
+                 WHERE user_id = ? AND variant_id = ? AND amount = ?
+                   AND payment_method = 'vietqr_direct' AND status = 'pending'
+                 ORDER BY id DESC LIMIT 1 FOR UPDATE",
+                [$userId, $variantId, $amount]
+            );
+            if ($order !== null) {
+                return $order;
+            }
+
+            do {
+                $paymentCode = Helpers::randomCode('DONATE');
+                $existsInOrders = $db->fetch(
+                    'SELECT id FROM orders WHERE payment_code = ?',
+                    [$paymentCode]
+                ) !== null;
+                $existsInDeposits = $db->fetch(
+                    'SELECT id FROM deposits WHERE code = ?',
+                    [$paymentCode]
+                ) !== null;
+            } while ($existsInOrders || $existsInDeposits);
+
+            $orderCode = Helpers::orderCode();
+            $db->execute(
+                "INSERT INTO orders
+                 (order_code, payment_code, user_id, variant_id, amount, payment_method, status)
+                 VALUES (?, ?, ?, ?, ?, 'vietqr_direct', 'pending')",
+                [$orderCode, $paymentCode, $userId, $variantId, $amount]
+            );
+
+            return [
+                'id' => $db->lastInsertId(),
+                'order_code' => $orderCode,
+                'payment_code' => $paymentCode,
+            ];
+        });
     }
 }
