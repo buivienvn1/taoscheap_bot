@@ -86,6 +86,20 @@ final class Telegram
 
         $result = json_decode($body, true);
         if (!is_array($result) || ($result['ok'] ?? false) !== true) {
+            $description = (string) ($result['description'] ?? '');
+            if (isset($payload['parse_mode']) && str_contains($description, "can't parse entities")) {
+                unset($payload['parse_mode']);
+                foreach (['text', 'caption'] as $field) {
+                    if (isset($payload[$field])) {
+                        $payload[$field] = html_entity_decode(
+                            strip_tags((string) $payload[$field]),
+                            ENT_QUOTES | ENT_SUBSTITUTE,
+                            'UTF-8'
+                        );
+                    }
+                }
+                return $this->request($method, $payload);
+            }
             throw new RuntimeException('Telegram API rejected request: ' . $body);
         }
 

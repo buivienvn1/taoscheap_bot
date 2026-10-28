@@ -14,6 +14,12 @@ final class Helpers
         return htmlspecialchars($text ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    public static function sanitizeTelegramHtml(?string $text): string
+    {
+        $allowedTags = '<b><strong><i><em><u><ins><s><strike><del><tg-spoiler><a><code><pre><blockquote>';
+        return strip_tags($text ?? '', $allowedTags);
+    }
+
     public static function randomCode(string $prefix = 'Donate', int $length = 6): string
     {
         $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

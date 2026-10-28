@@ -1,4 +1,4 @@
-# Kế Hoạch Chuẩn Hóa Tiêu Đề Blockquote & Giao Diện /start (Foxpay Style)
+# Kế Hoạch Chuẩn Hóa Tiêu Đề Blockquote, Giao Diện /start & Hỗ Trợ HTML Telegram Cho shop_intro
 
 Tài liệu này chi tiết hóa việc chuẩn hóa toàn bộ các tiêu đề màn hình trong Telegram Bot sang thẻ `<blockquote>` theo Telegram Bot API 7.0+ và tái cấu trúc màn hình `/start` chuẩn xác theo format Foxpay.
 
@@ -41,7 +41,15 @@ Tài liệu này chi tiết hóa việc chuẩn hóa toàn bộ các tiêu đề
 
 ## 2. Chi Tiết Thay Đổi Các File Handlers
 
-### 2.1. `bot/handlers/StartHandler.php`
+### 2.1. `bot/handlers/StartHandler.php` & Hỗ Trợ HTML Telegram
+- **Hỗ trợ HTML Telegram cho `shop_intro`**:
+  - Hiện tại, `StartHandler.php` gọi `Helpers::escape($shopIntro)`, hàm này dùng `htmlspecialchars` biến mọi tag HTML thành chuỗi ký tự hiển thị thô (`<b>...</b>`).
+  - Thay vì escape toàn bộ, xây dựng hàm `Helpers::sanitizeTelegramHtml($text)`:
+    - Cho phép các thẻ hợp lệ của Telegram: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<ins>`, `<s>`, `<strike>`, `<del>`, `<tg-spoiler>`, `<a>`, `<code>`, `<pre>`, `<blockquote>`.
+    - Lọc bỏ các thẻ không hợp lệ tránh gây lỗi Telegram API (`<div>`, `<p>`, `<script>`,...).
+  - Cơ chế tự động Fallback an toàn trong `core/Telegram.php`:
+    - Nếu admin nhập sai cú pháp (như quên đóng thẻ `</b>`), Telegram trả về mã lỗi `Bad Request: can't parse entities`.
+    - Hệ thống tự động bắt lỗi và gửi lại dạng text thuần loại bỏ thẻ (`strip_tags`) để tin nhắn bot không bao giờ bị nghẽn.
 - **Tiêu đề**:
   ```php
   $welcomeTitle = 'Selamat Datang Di ' . ($settings['shop_name'] ?? 'Foxpay');
@@ -50,7 +58,7 @@ Tài liệu này chi tiết hóa việc chuẩn hóa toàn bộ các tiêu đề
 - **Nội dung Foxpay**:
   ```php
   $intro = $settings['shop_intro'] ?? "FOXPAY - gudang aplikasi digital\nuntuk memenuhi semua kebutuhan\nharian anda.";
-  $text .= Helpers::escape($intro) . "\n\n";
+  $text .= Helpers::sanitizeTelegramHtml($intro) . "\n\n";
   $text .= "Kenapa harus kami ?\n";
   $text .= "- transaksi aman ✅\n";
   $text .= "- cs fast respon ✅\n";

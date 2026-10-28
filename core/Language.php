@@ -5,11 +5,17 @@ declare(strict_types=1);
 final class Language
 {
     private array $messages;
+    private string $code;
 
     public function __construct(string $code = 'vi')
     {
-        $safeCode = in_array($code, ['vi', 'en'], true) ? $code : 'vi';
-        $this->messages = require __DIR__ . '/../languages/' . $safeCode . '.php';
+        $this->code = in_array($code, ['vi', 'en'], true) ? $code : 'vi';
+        $this->messages = require __DIR__ . '/../languages/' . $this->code . '.php';
+    }
+
+    public function code(): string
+    {
+        return $this->code;
     }
 
     public function get(string $key, array $replace = []): string

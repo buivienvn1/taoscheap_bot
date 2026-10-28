@@ -8,7 +8,7 @@ final class DepositHandler
     {
     }
 
-    public function show(int $chatId, int $userId): void
+    public function show(int $chatId, int $userId, Language $lang): void
     {
         $deposit = $this->db->fetch("SELECT * FROM deposits WHERE user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1", [$userId]);
         if ($deposit === null) {
@@ -18,7 +18,10 @@ final class DepositHandler
             $this->db->execute("INSERT INTO deposits (user_id, code, status) VALUES (?, ?, 'pending')", [$userId, $code]);
             $deposit = ['code' => $code];
         }
-        $caption = "<blockquote>NẠP TIỀN VÀO VÍ</blockquote>\n\nNội dung: <code>" . $deposit['code'] . "</code>\nTối thiểu: <b>" . Helpers::money($this->minDeposit) . "</b>\n\nMã được giữ đến khi nạp thành công.";
-        $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($deposit['code']), $caption, [[['text' => '⬅ Menu chính', 'callback_data' => 'start']]]);
+        $caption = '<blockquote>' . $lang->get('deposit_title') . "</blockquote>\n\n"
+            . $lang->get('transfer_content') . ': <code>' . $deposit['code'] . "</code>\n"
+            . $lang->get('minimum') . ': <b>' . Helpers::money($this->minDeposit) . "</b>\n\n"
+            . $lang->get('deposit_code_note');
+        $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($deposit['code']), $caption, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
     }
 }

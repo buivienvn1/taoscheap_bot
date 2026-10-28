@@ -8,10 +8,12 @@ final class SupportHandler
     {
     }
 
-    public function show(int $chatId, int $messageId): void
+    public function show(int $chatId, int $messageId, Language $lang): void
     {
-        $row = $this->db->fetch("SELECT key_value FROM settings WHERE key_name = 'support_text'");
-        $text = "<blockquote>HỖ TRỢ KHÁCH HÀNG</blockquote>\n\n" . Helpers::escape($row['key_value'] ?? 'Liên hệ quản trị viên.');
-        $this->telegram->editMessage($chatId, $messageId, $text, [[['text' => '⬅ Quay lại', 'callback_data' => 'start']]]);
+        $key = $lang->code() === 'en' ? 'support_text_en' : 'support_text';
+        $row = $this->db->fetch('SELECT key_value FROM settings WHERE key_name = ?', [$key]);
+        $supportText = ($row['key_value'] ?? '') ?: $lang->get('support_default');
+        $text = '<blockquote>' . $lang->get('support_title') . "</blockquote>\n\n" . Helpers::escape($supportText);
+        $this->telegram->editMessage($chatId, $messageId, $text, [[['text' => $lang->get('back'), 'callback_data' => 'start']]]);
     }
 }

@@ -10,6 +10,7 @@ final class Router
     private ProfileHandler $profile;
     private SupportHandler $support;
     private OrderHandler $orders;
+    private array $languages;
 
     public function __construct(private Database $db, private Telegram $telegram, VietQR $vietQr, array $app)
     {
@@ -19,6 +20,7 @@ final class Router
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
         $this->orders = new OrderHandler($db, $telegram, $vietQr);
+        $this->languages = ['vi' => new Language('vi'), 'en' => new Language('en')];
     }
 
     public function handle(array $update): void
@@ -30,13 +32,14 @@ final class Router
         $message = $update['message'] ?? null;
         if (!is_array($message) || !isset($message['chat']['id'], $message['from'])) return;
 
+        $user = $this->upsertUser($message['from']);
+        $lang = $this->language($user['language'] ?? 'vi');
         $text = trim((string) ($message['text'] ?? ''));
         if ($text === '/start' || str_starts_with($text, '/start ')) {
-            $this->upsertUser($message['from']);
-            $this->start->show((int) $message['chat']['id']);
+            $this->start->show((int) $message['chat']['id'], $lang);
             return;
         }
-        $this->telegram->sendMessage((int) $message['chat']['id'], 'Dùng menu bên dưới để thao tác.', [[['text' => '🏠 Mở menu', 'callback_data' => 'start']]]);
+        $this->telegram->sendMessage((int) $message['chat']['id'], $lang->get('use_menu'), [[['text' => $lang->get('open_menu'), 'callback_data' => 'start']]]);
     }
 
     private function handleCallback(array $callback): void
@@ -46,18 +49,47 @@ final class Router
         $messageId = (int) ($message['message_id'] ?? 0);
         if ($chatId === 0 || $messageId === 0) return;
 
+        $user = $this->findUser($callback['from']);
         $data = (string) ($callback['data'] ?? 'start');
-        if ($data === 'start') $this->start->show($chatId, $messageId);
-        elseif ($data === 'products') $this->products->list($chatId, $messageId);
-        elseif ($data === 'support') $this->support->show($chatId, $messageId);
-        elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) substr($data, 8));
-        else {
-            $user = $this->upsertUser($callback['from']);
-            if ($data === 'deposit') $this->deposit->show($chatId, (int) $user['id']);
-            elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user);
-            elseif ($data === 'history') $this->profile->history($chatId, $messageId, (int) $user['id']);
-            elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $user, (int) substr($data, 4));
+        if (str_starts_with($data, 'lang:')) {
+            $code = substr($data, 5);
+            if (isset($this->languages[$code])) {
+                $this->db->execute('UPDATE users SET language = ? WHERE id = ?', [$code, $user['id']]);
+                $user['language'] = $code;
+            }
         }
+        $lang = $this->language($user['language'] ?? 'vi');
+
+        if ($data === 'start' || str_starts_with($data, 'lang:')) $this->start->show($chatId, $lang, $messageId);
+        elseif ($data === 'language') $this->showLanguage($chatId, $messageId, $lang);
+        elseif ($data === 'products') $this->products->list($chatId, $messageId, $lang);
+        elseif ($data === 'support') $this->support->show($chatId, $messageId, $lang);
+        elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) substr($data, 8), $lang);
+        elseif ($data === 'deposit') $this->deposit->show($chatId, (int) $user['id'], $lang);
+        elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user, $lang);
+        elseif ($data === 'history') $this->profile->history($chatId, $messageId, (int) $user['id'], $lang);
+        elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $user, (int) substr($data, 4), $lang);
+    }
+
+    private function showLanguage(int $chatId, int $messageId, Language $lang): void
+    {
+        $text = '<blockquote>' . $lang->get('language_title') . "</blockquote>\n\n" . $lang->get('language_prompt');
+        $keyboard = [
+            [['text' => '🇻🇳 Tiếng Việt', 'callback_data' => 'lang:vi'], ['text' => '🇬🇧 English', 'callback_data' => 'lang:en']],
+            [['text' => $lang->get('back'), 'callback_data' => 'start']],
+        ];
+        $this->telegram->editMessage($chatId, $messageId, $text, $keyboard);
+    }
+
+    private function language(string $code): Language
+    {
+        return $this->languages[$code] ?? $this->languages['vi'];
+    }
+
+    private function findUser(array $from): array
+    {
+        $user = $this->db->fetch('SELECT * FROM users WHERE telegram_id = ?', [(int) $from['id']]);
+        return $user ?? $this->upsertUser($from);
     }
 
     private function upsertUser(array $from): array

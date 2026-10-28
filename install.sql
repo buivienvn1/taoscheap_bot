@@ -127,9 +127,11 @@ CREATE TABLE IF NOT EXISTS admins (
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'Foxpay'),
     ('shop_intro', 'FOXPAY - gudang aplikasi digital\nuntuk memenuhi semua kebutuhan\nharian anda.'),
+    ('shop_intro_en', '<b>Taos Cheap</b> - digital products for your daily needs.'),
     ('owner_username', '@foxstoreid'),
     ('channel_username', '@foxpayid'),
     ('website', 'foxpay.my.id'),
     ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
+    ('support_text_en', 'Contact the administrator for support.'),
     ('min_deposit', '2000')
 ON DUPLICATE KEY UPDATE key_name = VALUES(key_name);
