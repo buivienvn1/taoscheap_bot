@@ -61,12 +61,12 @@ final class Telegram
             }
         }
 
-        $file = $this->downloadImage($photo);
+        $image = $this->downloadImage($photo);
         try {
-            $payload['photo'] = new CURLFile($file, 'image/png', 'vietqr.png');
+            $payload['photo'] = new CURLFile($image['path'], $image['mime'], $image['name']);
             return $this->request('sendPhoto', $payload);
         } finally {
-            @unlink($file);
+            @unlink($image['path']);
         }
     }
 
@@ -105,7 +105,7 @@ final class Telegram
         return $payload;
     }
 
-    private function downloadImage(string $url): string
+    private function downloadImage(string $url): array
     {
         $parts = parse_url($url);
         if (($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') !== 'img.vietqr.io') {
@@ -152,7 +152,14 @@ final class Telegram
             throw new RuntimeException('Unable to download a valid QR image.');
         }
 
-        return $file;
+        $mime = (string) ($imageInfo['mime'] ?? $contentType);
+        $extension = $mime === 'image/jpeg' ? 'jpg' : 'png';
+
+        return [
+            'path' => $file,
+            'mime' => $mime,
+            'name' => 'vietqr.' . $extension,
+        ];
     }
 
     private function request(string $method, array $payload): array

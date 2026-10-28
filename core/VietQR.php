@@ -10,16 +10,17 @@ final class VietQR
 
     public function imageUrl(string $content, ?float $amount = null): string
     {
+        $bankId = strtoupper((string) $this->bank['bank_id']);
+        if ($bankId === 'ACB') {
+            $bankId = '970416';
+        }
+
         $base = sprintf(
-            'https://img.vietqr.io/image/%s-%s-%s.png',
-            rawurlencode($this->bank['bank_id']),
-            rawurlencode($this->bank['account_number']),
-            rawurlencode($this->bank['template'])
+            'https://img.vietqr.io/image/%s-%s-compact.jpg',
+            rawurlencode($bankId),
+            rawurlencode($this->bank['account_number'])
         );
-        $query = [
-            'addInfo' => $content,
-            'accountName' => $this->bank['account_name'],
-        ];
+        $query = ['addInfo' => $content];
 
         if ($amount !== null && $amount > 0) {
             $query['amount'] = (string) (int) $amount;
