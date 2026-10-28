@@ -73,7 +73,7 @@ final class Router
 
     private function showLanguage(int $chatId, int $messageId, Language $lang): void
     {
-        $text = '<blockquote>' . $lang->get('language_title') . "</blockquote>\n\n" . $lang->get('language_prompt');
+        $text = '<blockquote><b>' . $lang->get('language_title') . "</b></blockquote>\n\n" . $lang->get('language_prompt');
         $keyboard = [
             [['text' => '🇻🇳 Tiếng Việt', 'callback_data' => 'lang:vi'], ['text' => '🇬🇧 English', 'callback_data' => 'lang:en']],
             [['text' => $lang->get('back'), 'callback_data' => 'start']],

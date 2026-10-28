@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'welcome_title' => 'Chào mừng đến với <b>:shop</b>',
+    'welcome_title' => 'Chào mừng đến với :shop',
     'why_us' => '<b>Tại sao chọn chúng tôi?</b>',
     'safe_transactions' => '- giao dịch an toàn ✅',
     'fast_support' => '- hỗ trợ nhanh chóng ✅',

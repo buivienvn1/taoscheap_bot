@@ -29,7 +29,7 @@ final class OrderHandler
         $paymentCode = $this->uniqueCode();
         $orderCode = Helpers::orderCode();
         $this->db->execute("INSERT INTO orders (order_code, payment_code, user_id, variant_id, amount, payment_method, status) VALUES (?, ?, ?, ?, ?, 'vietqr_direct', 'pending')", [$orderCode, $paymentCode, $user['id'], $variantId, $variant['price']]);
-        $caption = '<blockquote>' . $lang->get('payment_title') . "</blockquote>\n\n"
+        $caption = '<blockquote><b>' . $lang->get('payment_title') . "</b></blockquote>\n\n"
             . $lang->get('product') . ': ' . Helpers::escape($variant['product_name'] . ' - ' . $variant['name']) . "\n"
             . $lang->get('amount') . ': <b>' . Helpers::money($variant['price']) . "</b>\n"
             . $lang->get('transfer_content') . ': <code>' . $paymentCode . '</code>';
@@ -56,7 +56,7 @@ final class OrderHandler
             $db->execute("UPDATE orders SET stock_content = ?, status = 'completed', paid_at = NOW(), completed_at = NOW() WHERE id = ?", [$stock['content'], $orderId]);
             $db->execute("INSERT INTO transactions (user_id, type, amount, reference_type, reference_id, note) VALUES (?, 'purchase', ?, 'order', ?, ?)", [$userId, -((float) $variant['price']), $orderId, $orderCode]);
 
-            return ['message' => '<blockquote>' . $lang->get('purchase_success') . "</blockquote>\n\n"
+            return ['message' => '<blockquote><b>' . $lang->get('purchase_success') . "</b></blockquote>\n\n"
                 . $lang->get('order_code') . ': <code>' . $orderCode . "</code>\n"
                 . $lang->get('product') . ': ' . Helpers::escape($variant['name']) . "\n\n"
                 . $lang->get('delivery_info') . ":\n<code>" . Helpers::escape($stock['content']) . '</code>'];

@@ -18,7 +18,7 @@ final class DepositHandler
             $this->db->execute("INSERT INTO deposits (user_id, code, status) VALUES (?, ?, 'pending')", [$userId, $code]);
             $deposit = ['code' => $code];
         }
-        $caption = '<blockquote>' . $lang->get('deposit_title') . "</blockquote>\n\n"
+        $caption = '<blockquote><b>' . $lang->get('deposit_title') . "</b></blockquote>\n\n"
             . $lang->get('transfer_content') . ': <code>' . $deposit['code'] . "</code>\n"
             . $lang->get('minimum') . ': <b>' . Helpers::money($this->minDeposit) . "</b>\n\n"
             . $lang->get('deposit_code_note');

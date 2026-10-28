@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'welcome_title' => 'Welcome to <b>:shop</b>',
+    'welcome_title' => 'Welcome to :shop',
     'why_us' => '<b>Why choose us?</b>',
     'safe_transactions' => '- secure transactions ✅',
     'fast_support' => '- fast support ✅',

@@ -13,7 +13,7 @@ final class SupportHandler
         $key = $lang->code() === 'en' ? 'support_text_en' : 'support_text';
         $row = $this->db->fetch('SELECT key_value FROM settings WHERE key_name = ?', [$key]);
         $supportText = ($row['key_value'] ?? '') ?: $lang->get('support_default');
-        $text = '<blockquote>' . $lang->get('support_title') . "</blockquote>\n\n" . Helpers::escape($supportText);
+        $text = '<blockquote><b>' . $lang->get('support_title') . "</b></blockquote>\n\n" . Helpers::escape($supportText);
         $this->telegram->editMessage($chatId, $messageId, $text, [[['text' => $lang->get('back'), 'callback_data' => 'start']]]);
     }
 }

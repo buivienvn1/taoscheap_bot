@@ -11,7 +11,7 @@ final class ProductHandler
     public function list(int $chatId, int $messageId, Language $lang): void
     {
         $products = $this->db->fetchAll("SELECT p.id, p.name, SUM(CASE WHEN v.supplier_type = 'api' THEN 1 ELSE COALESCE(s.available, 0) END) stock FROM products p LEFT JOIN variants v ON v.product_id = p.id AND v.status = 1 LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) s ON s.variant_id = v.id WHERE p.status = 1 GROUP BY p.id ORDER BY p.sort_order, p.id LIMIT 50");
-        $text = '<blockquote>' . $lang->get('products_title') . "</blockquote>\n\n";
+        $text = '<blockquote><b>' . $lang->get('products_title') . "</b></blockquote>\n\n";
         $buttons = [];
         foreach ($products as $index => $product) {
             $number = $index + 1;
@@ -46,7 +46,7 @@ final class ProductHandler
              ORDER BY v.sort_order, v.id",
             [$productId]
         );
-        $text = '<blockquote>' . $lang->get('product_detail') . "</blockquote>\n\n<b>" . $lang->get('name') . ':</b> ' . Helpers::escape($product['name']) . "\n" . Helpers::escape($product['description']);
+        $text = '<blockquote><b>' . $lang->get('product_detail') . "</b></blockquote>\n\n<b>" . $lang->get('name') . ':</b> ' . Helpers::escape($product['name']) . "\n" . Helpers::escape($product['description']);
         if ($product['features']) {
             $text .= "\n\n<b>" . $lang->get('features') . "</b>\n" . Helpers::escape($product['features']);
         }

@@ -22,7 +22,7 @@ final class StartHandler
         $channel = ($settings['channel_username'] ?? '') ?: '@taoscheap';
         $website = ($settings['website'] ?? '') ?: 'taoscheap.qthang.net';
 
-        $text = '<blockquote>' . $lang->get('welcome_title', ['shop' => Helpers::escape($shopName)]) . "</blockquote>\n\n"
+        $text = '<blockquote><b>' . $lang->get('welcome_title', ['shop' => Helpers::escape($shopName)]) . "</b></blockquote>\n\n"
             . Helpers::sanitizeTelegramHtml($shopIntro) . "\n\n"
             . $lang->get('why_us') . "\n"
             . $lang->get('safe_transactions') . "\n"
