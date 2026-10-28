@@ -28,23 +28,24 @@ jobs:
         shell: bash
         run: find . -type f -name '*.php' -not -path './.git/*' -print0 | xargs -0 -n1 php -l
 
-      - name: Deploy changed files to cPanel FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftp
-          port: 21
-          server-dir: ./
-          dangerous-clean-slate: false
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/.github/**
-            .cpanel.yml
-            plans/**
-            config/app.php
-            config/database.php
-            config/bank.php
-            README.md
+      - name: Trigger native cPanel deployment
+        shell: bash
+        env:
+          CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+          CPANEL_PORT: ${{ secrets.CPANEL_PORT }}
+          CPANEL_USERNAME: ${{ secrets.CPANEL_USERNAME }}
+          CPANEL_API_TOKEN: ${{ secrets.CPANEL_API_TOKEN }}
+          CPANEL_REPOSITORY_ROOT: ${{ secrets.CPANEL_REPOSITORY_ROOT }}
+        run: |
+          response=$(curl --fail-with-body --silent --show-error \
+            --get "https://${CPANEL_HOST}:${CPANEL_PORT:-2083}/execute/VersionControlDeployment/create" \
+            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
+            --data-urlencode "repository_root=${CPANEL_REPOSITORY_ROOT}")
+          echo "$response"
+          echo "$response" | php -r '
+            $result = json_decode(stream_get_contents(STDIN), true);
+            if (($result["status"] ?? 0) !== 1) {
+                fwrite(STDERR, "cPanel deployment request failed.\n");
+                exit(1);
+            }
+          '
