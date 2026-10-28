@@ -64,11 +64,26 @@ final class Router
         elseif ($data === 'language') $this->showLanguage($chatId, $messageId, $lang);
         elseif ($data === 'products') $this->products->list($chatId, $messageId, $lang);
         elseif ($data === 'support') $this->support->show($chatId, $messageId, $lang);
-        elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) substr($data, 8), $lang);
+        elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) $user['id'], (int) substr($data, 8), $lang);
+        elseif (str_starts_with($data, 'qty:')) {
+            $parts = explode(':', $data, 4);
+            if (count($parts) === 4) {
+                $this->products->changeQuantity($chatId, $messageId, (int) $user['id'], (int) $parts[1], $parts[3], (int) $parts[2], $lang);
+            }
+        }
+        elseif (str_starts_with($data, 'checkout:')) {
+            $parts = explode(':', $data, 3);
+            if (count($parts) === 3) {
+                $this->orders->checkout($chatId, $messageId, $user, (int) $parts[1], (int) $parts[2], $lang);
+            }
+        }
         elseif ($data === 'deposit') $this->deposit->show($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user, $lang);
-        elseif ($data === 'history') $this->profile->history($chatId, $messageId, (int) $user['id'], $lang);
-        elseif (str_starts_with($data, 'buy:')) $this->orders->buy($chatId, $messageId, $user, (int) substr($data, 4), $lang);
+        elseif (str_starts_with($data, 'history')) {
+            $parts = explode(':', $data, 2);
+            $this->profile->history($chatId, $messageId, (int) $user['id'], $lang, isset($parts[1]) ? max(1, (int) $parts[1]) : 1);
+        }
+        elseif (str_starts_with($data, 'buy:')) $this->orders->legacyBuy($chatId, $messageId, (int) $user['id'], (int) substr($data, 4), $lang);
     }
 
     private function showLanguage(int $chatId, int $messageId, Language $lang): void

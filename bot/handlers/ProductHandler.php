@@ -4,62 +4,171 @@ declare(strict_types=1);
 
 final class ProductHandler
 {
+    private const MAX_QUANTITY = 100;
+
     public function __construct(private Database $db, private Telegram $telegram)
     {
     }
 
     public function list(int $chatId, int $messageId, Language $lang): void
     {
-        $products = $this->db->fetchAll("SELECT p.id, p.name, SUM(CASE WHEN v.supplier_type = 'api' THEN 1 ELSE COALESCE(s.available, 0) END) stock FROM products p LEFT JOIN variants v ON v.product_id = p.id AND v.status = 1 LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) s ON s.variant_id = v.id WHERE p.status = 1 GROUP BY p.id ORDER BY p.sort_order, p.id LIMIT 50");
+        $products = $this->db->fetchAll(
+            "SELECT p.id, p.name,
+                    CASE WHEN v.supplier_type = 'manual' THEN COALESCE(s.available, 0) ELSE 0 END stock
+             FROM products p
+             JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
+             LEFT JOIN (
+                 SELECT variant_id, COUNT(*) available
+                 FROM stocks WHERE is_sold = 0 GROUP BY variant_id
+             ) s ON s.variant_id = v.id
+             WHERE p.status = 1
+             ORDER BY p.sort_order, p.id LIMIT 50"
+        );
         $text = '<blockquote><b>' . $lang->get('products_title') . "</b></blockquote>\n\n";
         $buttons = [];
         foreach ($products as $index => $product) {
             $number = $index + 1;
-            $stock = (int) $product['stock'];
             $text .= $number . '. <b>' . Helpers::escape($product['name']) . '</b> - '
-                . $lang->get('product_stock', ['count' => $stock]) . "\n";
+                . $lang->get('product_stock', ['count' => (int) $product['stock']]) . "\n";
             $buttons[] = ['text' => (string) $number, 'callback_data' => 'product:' . $product['id']];
         }
-        if ($products === []) {
-            $text .= $lang->get('empty_products');
-        } else {
-            $text .= "\n<i>" . $lang->get('product_list_hint') . '</i>';
-        }
+        $text .= $products === [] ? $lang->get('empty_products') : "\n<i>" . $lang->get('product_list_hint') . '</i>';
         $keyboard = array_chunk($buttons, 5);
-        $keyboard[] = [['text' => $lang->get('back'), 'callback_data' => 'start'], ['text' => $lang->get('refresh'), 'callback_data' => 'products']];
+        $keyboard[] = [
+            ['text' => $lang->get('back'), 'callback_data' => 'start'],
+            ['text' => $lang->get('refresh'), 'callback_data' => 'products'],
+        ];
         $this->telegram->editMessage($chatId, $messageId, $text, $keyboard);
     }
 
-    public function detail(int $chatId, int $messageId, int $productId, Language $lang): void
+    public function detail(int $chatId, int $messageId, int $userId, int $productId, Language $lang): void
     {
-        $product = $this->db->fetch('SELECT * FROM products WHERE id = ? AND status = 1', [$productId]);
+        $selection = $this->selection($userId, $messageId, $productId);
+        $this->render($chatId, $messageId, $userId, $productId, (int) $selection['quantity'], (int) $selection['version'], $lang);
+    }
+
+    public function changeQuantity(
+        int $chatId,
+        int $messageId,
+        int $userId,
+        int $productId,
+        string $operation,
+        int $version,
+        Language $lang
+    ): void {
+        $selection = $this->db->transaction(function (Database $db) use ($userId, $messageId, $productId, $operation, $version): ?array {
+            $current = $db->fetch(
+                'SELECT * FROM checkout_selections WHERE user_id = ? AND message_id = ? FOR UPDATE',
+                [$userId, $messageId]
+            );
+            if ($current === null || (int) $current['product_id'] !== $productId || (int) $current['version'] !== $version) {
+                return null;
+            }
+            $quantity = (int) $current['quantity'];
+            $quantity = match ($operation) {
+                'inc' => $quantity + 1,
+                'dec' => $quantity - 1,
+                'five' => 5,
+                'ten' => 10,
+                default => $quantity,
+            };
+            $quantity = max(1, min(self::MAX_QUANTITY, $quantity));
+            $db->execute(
+                'UPDATE checkout_selections SET quantity = ?, version = version + 1 WHERE user_id = ? AND message_id = ?',
+                [$quantity, $userId, $messageId]
+            );
+            return ['quantity' => $quantity, 'version' => $version + 1];
+        });
+        if ($selection === null) {
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('selection_expired'), [
+                [['text' => $lang->get('products_button'), 'callback_data' => 'products']],
+            ]);
+            return;
+        }
+        $this->render($chatId, $messageId, $userId, $productId, (int) $selection['quantity'], (int) $selection['version'], $lang);
+    }
+
+    private function selection(int $userId, int $messageId, int $productId): array
+    {
+        return $this->db->transaction(function (Database $db) use ($userId, $messageId, $productId): array {
+            $current = $db->fetch(
+                'SELECT * FROM checkout_selections WHERE user_id = ? AND message_id = ? FOR UPDATE',
+                [$userId, $messageId]
+            );
+            if ($current !== null && (int) $current['product_id'] === $productId) {
+                return $current;
+            }
+            $version = $current === null ? 1 : (int) $current['version'] + 1;
+            $db->execute(
+                'INSERT INTO checkout_selections (user_id, message_id, product_id, quantity, version) VALUES (?, ?, ?, 1, ?)
+                 ON DUPLICATE KEY UPDATE product_id = VALUES(product_id), quantity = 1, version = VALUES(version)',
+                [$userId, $messageId, $productId, $version]
+            );
+            return ['quantity' => 1, 'version' => $version];
+        });
+    }
+
+    private function render(
+        int $chatId,
+        int $messageId,
+        int $userId,
+        int $productId,
+        int $quantity,
+        int $version,
+        Language $lang
+    ): void {
+        $product = $this->db->fetch(
+            "SELECT p.id, p.name, p.description, p.features, v.id variant_id, v.price, v.supplier_type,
+                    CASE WHEN v.supplier_type = 'manual' THEN COALESCE(stock.available, 0) ELSE 0 END stock,
+                    COALESCE(sold.total, 0) sold
+             FROM products p
+             JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
+             LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) stock ON stock.variant_id = v.id
+             LEFT JOIN (SELECT variant_id, COUNT(*) total FROM stocks WHERE is_sold = 1 GROUP BY variant_id) sold ON sold.variant_id = v.id
+             WHERE p.id = ? AND p.status = 1",
+            [$productId]
+        );
         if ($product === null) {
             $this->list($chatId, $messageId, $lang);
             return;
         }
-        $variants = $this->db->fetchAll(
-            "SELECT v.*, CASE WHEN v.supplier_type = 'api' THEN 1 ELSE COUNT(s.id) END stock
-             FROM variants v
-             LEFT JOIN stocks s ON s.variant_id = v.id AND s.is_sold = 0
-             WHERE v.product_id = ? AND v.status = 1
-             GROUP BY v.id
-             ORDER BY v.sort_order, v.id",
-            [$productId]
-        );
-        $text = '<blockquote><b>' . $lang->get('product_detail') . "</b></blockquote>\n\n<b>" . $lang->get('name') . ':</b> ' . Helpers::escape($product['name']) . "\n" . Helpers::escape($product['description']);
-        if ($product['features']) {
-            $text .= "\n\n<b>" . $lang->get('features') . "</b>\n" . Helpers::escape($product['features']);
+        $stock = (int) $product['stock'];
+        $total = number_format((float) $product['price'] * $quantity, 2, '.', '');
+        $description = trim((string) $product['description']);
+        $features = trim((string) $product['features']);
+        if ($features !== '') {
+            $description .= ($description === '' ? '' : "\n") . $features;
         }
-        $text .= "\n\n<b>" . $lang->get('product_packages') . ":</b>\n";
-        $keyboard = [];
-        foreach ($variants as $index => $variant) {
-            $stock = (int) $variant['stock'];
-            $text .= ($index + 1) . '. ' . Helpers::escape($variant['name']) . "\n↳ " . $lang->get('price') . ': ' . Helpers::money($variant['price']) . "\n↳ " . $lang->get('stock') . ': ' . $stock . "\n\n";
-            if ($stock > 0) {
-                $keyboard[] = [['text' => $lang->get('buy', ['name' => $variant['name']]), 'callback_data' => 'buy:' . $variant['id']]];
-            }
+        $text = '<blockquote><b>' . $lang->get('product_detail') . "</b></blockquote>\n\n"
+            . '<b>## ' . Helpers::escape($product['name']) . "</b>\n"
+            . '╰ ' . $lang->get('price') . ': <b>' . Helpers::money($product['price']) . "</b>\n"
+            . '╰ ' . $lang->get('stock') . ': <b>' . $stock . "</b>\n"
+            . '╰ ' . $lang->get('sold') . ': <b>' . (int) $product['sold'] . "</b>\n\n"
+            . '<b>' . $lang->get('description') . "</b>\n" . Helpers::escape($description) . "\n\n"
+            . '<b>' . $lang->get('order_details') . "</b>\n"
+            . $lang->get('quantity') . ': <b>' . $quantity . "</b>\n"
+            . $lang->get('total') . ': <b>' . Helpers::money($total) . '</b>';
+
+        $base = 'qty:' . $productId . ':' . $version . ':';
+        $keyboard = [[
+            ['text' => '➖', 'callback_data' => $base . 'dec'],
+            ['text' => $lang->get('quantity_button', ['quantity' => $quantity]), 'callback_data' => $base . 'show'],
+            ['text' => '➕', 'callback_data' => $base . 'inc'],
+        ]];
+        $quick = [];
+        if ($stock >= 5) $quick[] = ['text' => $lang->get('select_five'), 'callback_data' => $base . 'five'];
+        if ($stock >= 10) $quick[] = ['text' => $lang->get('select_ten'), 'callback_data' => $base . 'ten'];
+        if ($quick !== []) $keyboard[] = $quick;
+        if ($product['supplier_type'] === 'manual' && $stock > 0) {
+            $keyboard[] = [[
+                'text' => $lang->get('checkout'),
+                'callback_data' => 'checkout:' . $productId . ':' . $version,
+            ]];
         }
-        $keyboard[] = [['text' => $lang->get('back'), 'callback_data' => 'products'], ['text' => $lang->get('refresh'), 'callback_data' => 'product:' . $productId]];
+        $keyboard[] = [
+            ['text' => $lang->get('back'), 'callback_data' => 'products'],
+            ['text' => $lang->get('refresh'), 'callback_data' => 'product:' . $productId],
+        ];
         $this->telegram->editMessage($chatId, $messageId, trim($text), $keyboard);
     }
 }
