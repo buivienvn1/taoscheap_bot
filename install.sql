@@ -125,11 +125,11 @@ CREATE TABLE IF NOT EXISTS admins (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO settings (key_name, key_value) VALUES
-    ('shop_name', 'TAOS Shop'),
-    ('shop_intro', 'Sản phẩm số uy tín, giao hàng tự động.'),
-    ('owner_username', ''),
-    ('channel_username', ''),
-    ('website', ''),
+    ('shop_name', 'Foxpay'),
+    ('shop_intro', 'FOXPAY - gudang aplikasi digital\nuntuk memenuhi semua kebutuhan\nharian anda.'),
+    ('owner_username', '@foxstoreid'),
+    ('channel_username', '@foxpayid'),
+    ('website', 'foxpay.my.id'),
     ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
     ('min_deposit', '2000')
 ON DUPLICATE KEY UPDATE key_name = VALUES(key_name);

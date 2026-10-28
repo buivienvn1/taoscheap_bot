@@ -29,7 +29,7 @@ final class OrderHandler
         $paymentCode = $this->uniqueCode();
         $orderCode = Helpers::orderCode();
         $this->db->execute("INSERT INTO orders (order_code, payment_code, user_id, variant_id, amount, payment_method, status) VALUES (?, ?, ?, ?, ?, 'vietqr_direct', 'pending')", [$orderCode, $paymentCode, $user['id'], $variantId, $variant['price']]);
-        $caption = "<b>THANH TOÁN ĐƠN HÀNG</b>\n\nSản phẩm: " . Helpers::escape($variant['product_name'] . ' - ' . $variant['name']) . "\nSố tiền: <b>" . Helpers::money($variant['price']) . "</b>\nNội dung: <code>" . $paymentCode . "</code>";
+        $caption = "<blockquote>THANH TOÁN ĐƠN HÀNG</blockquote>\n\nSản phẩm: " . Helpers::escape($variant['product_name'] . ' - ' . $variant['name']) . "\nSố tiền: <b>" . Helpers::money($variant['price']) . "</b>\nNội dung: <code>" . $paymentCode . "</code>";
         $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($paymentCode, (float) $variant['price']), $caption, [[['text' => '⬅ Sản phẩm', 'callback_data' => 'products']]]);
     }
 
@@ -53,7 +53,7 @@ final class OrderHandler
             $db->execute("UPDATE orders SET stock_content = ?, status = 'completed', paid_at = NOW(), completed_at = NOW() WHERE id = ?", [$stock['content'], $orderId]);
             $db->execute("INSERT INTO transactions (user_id, type, amount, reference_type, reference_id, note) VALUES (?, 'purchase', ?, 'order', ?, ?)", [$userId, -((float) $variant['price']), $orderId, $orderCode]);
 
-            return ['message' => "✅ <b>Mua hàng thành công</b>\n\nMã đơn: <code>" . $orderCode . "</code>\nSản phẩm: " . Helpers::escape($variant['name']) . "\n\nThông tin nhận:\n<code>" . Helpers::escape($stock['content']) . '</code>'];
+            return ['message' => "<blockquote>MUA HÀNG THÀNH CÔNG</blockquote>\n\nMã đơn: <code>" . $orderCode . "</code>\nSản phẩm: " . Helpers::escape($variant['name']) . "\n\nThông tin nhận:\n<code>" . Helpers::escape($stock['content']) . '</code>'];
         });
     }
 

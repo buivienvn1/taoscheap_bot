@@ -18,7 +18,7 @@ final class DepositHandler
             $this->db->execute("INSERT INTO deposits (user_id, code, status) VALUES (?, ?, 'pending')", [$userId, $code]);
             $deposit = ['code' => $code];
         }
-        $caption = "<b>NẠP TIỀN</b>\n\nNội dung: <code>" . $deposit['code'] . "</code>\nTối thiểu: <b>" . Helpers::money($this->minDeposit) . "</b>\n\nMã được giữ đến khi nạp thành công.";
+        $caption = "<blockquote>NẠP TIỀN VÀO VÍ</blockquote>\n\nNội dung: <code>" . $deposit['code'] . "</code>\nTối thiểu: <b>" . Helpers::money($this->minDeposit) . "</b>\n\nMã được giữ đến khi nạp thành công.";
         $this->telegram->sendPhoto($chatId, $this->vietQr->imageUrl($deposit['code']), $caption, [[['text' => '⬅ Menu chính', 'callback_data' => 'start']]]);
     }
 }

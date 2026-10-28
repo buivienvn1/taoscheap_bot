@@ -11,13 +11,22 @@ final class StartHandler
     public function show(int $chatId, ?int $messageId = null): void
     {
         $settings = $this->settings();
-        $text = '<b>CHÀO MỪNG ĐẾN VỚI ' . Helpers::escape($settings['shop_name'] ?? 'SHOP') . "</b>\n\n"
-            . Helpers::escape($settings['shop_intro'] ?? '') . "\n\n"
-            . "• Giao dịch an toàn ✅\n• Hỗ trợ nhanh ✅\n• Sản phẩm chất lượng ✅";
-        $contacts = array_filter([$settings['owner_username'] ?? '', $settings['channel_username'] ?? '', $settings['website'] ?? '']);
-        if ($contacts !== []) {
-            $text .= "\n\n" . Helpers::escape(implode(' · ', $contacts));
-        }
+        $shopName = ($settings['shop_name'] ?? '') ?: 'Foxpay';
+        $shopIntro = ($settings['shop_intro'] ?? '') ?: "FOXPAY - gudang aplikasi digital\nuntuk memenuhi semua kebutuhan\nharian anda.";
+        $owner = ($settings['owner_username'] ?? '') ?: '@foxstoreid';
+        $channel = ($settings['channel_username'] ?? '') ?: '@foxpayid';
+        $website = ($settings['website'] ?? '') ?: 'foxpay.my.id';
+
+        $text = '<blockquote>Selamat Datang Di ' . Helpers::escape($shopName) . "</blockquote>\n\n"
+            . Helpers::escape($shopIntro) . "\n\n"
+            . "Kenapa harus kami ?\n"
+            . "- transaksi aman ✅\n"
+            . "- cs fast respon ✅\n"
+            . "- produk berkualitas ✅\n\n"
+            . "Tentang kami :\n"
+            . 'owner - ' . Helpers::escape($owner) . "\n"
+            . 'channel - ' . Helpers::escape($channel) . "\n"
+            . 'website - ' . Helpers::escape($website);
         $keyboard = [
             [['text' => '📦 Sản phẩm', 'callback_data' => 'products'], ['text' => '💳 Nạp tiền', 'callback_data' => 'deposit']],
             [['text' => '👤 Cá nhân', 'callback_data' => 'profile'], ['text' => '🆘 Hỗ trợ', 'callback_data' => 'support']],

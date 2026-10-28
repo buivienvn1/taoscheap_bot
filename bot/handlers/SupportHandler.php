@@ -11,7 +11,7 @@ final class SupportHandler
     public function show(int $chatId, int $messageId): void
     {
         $row = $this->db->fetch("SELECT key_value FROM settings WHERE key_name = 'support_text'");
-        $text = "<b>HỖ TRỢ</b>\n\n" . Helpers::escape($row['key_value'] ?? 'Liên hệ quản trị viên.');
+        $text = "<blockquote>HỖ TRỢ KHÁCH HÀNG</blockquote>\n\n" . Helpers::escape($row['key_value'] ?? 'Liên hệ quản trị viên.');
         $this->telegram->editMessage($chatId, $messageId, $text, [[['text' => '⬅ Quay lại', 'callback_data' => 'start']]]);
     }
 }

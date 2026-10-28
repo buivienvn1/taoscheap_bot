@@ -11,7 +11,7 @@ final class ProductHandler
     public function list(int $chatId, int $messageId): void
     {
         $products = $this->db->fetchAll("SELECT p.id, p.name, SUM(CASE WHEN v.supplier_type = 'api' THEN 1 ELSE COALESCE(s.available, 0) END) stock FROM products p LEFT JOIN variants v ON v.product_id = p.id AND v.status = 1 LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) s ON s.variant_id = v.id WHERE p.status = 1 GROUP BY p.id ORDER BY p.sort_order, p.id LIMIT 50");
-        $text = "<b>DANH SÁCH SẢN PHẨM</b>\n\n";
+        $text = "<blockquote>DANH SÁCH SẢN PHẨM</blockquote>\n\n";
         $buttons = [];
         foreach ($products as $index => $product) {
             $number = $index + 1;
@@ -43,7 +43,7 @@ final class ProductHandler
              ORDER BY v.sort_order, v.id",
             [$productId]
         );
-        $text = '<b>CHI TIẾT SẢN PHẨM</b>' . "\n\n<b>Tên:</b> " . Helpers::escape($product['name']) . "\n" . Helpers::escape($product['description']);
+        $text = '<blockquote>CHI TIẾT SẢN PHẨM</blockquote>' . "\n\n<b>Tên:</b> " . Helpers::escape($product['name']) . "\n" . Helpers::escape($product['description']);
         if ($product['features']) {
             $text .= "\n\n<b>Tính năng nổi bật 🌟</b>\n" . Helpers::escape($product['features']);
         }
