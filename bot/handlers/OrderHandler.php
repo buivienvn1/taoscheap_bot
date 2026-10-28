@@ -29,17 +29,19 @@ final class OrderHandler
         $paymentCode = $this->uniqueCode();
         $orderCode = Helpers::orderCode();
         $this->db->execute("INSERT INTO orders (order_code, payment_code, user_id, variant_id, amount, payment_method, status) VALUES (?, ?, ?, ?, ?, 'vietqr_direct', 'pending')", [$orderCode, $paymentCode, $user['id'], $variantId, $variant['price']]);
+        $bank = $this->vietQr->transferDetails();
         $caption = '<blockquote><b>' . $lang->get('payment_title') . "</b></blockquote>\n\n"
             . $lang->get('product') . ': ' . Helpers::escape($variant['product_name'] . ' - ' . $variant['name']) . "\n"
             . $lang->get('amount') . ': <b>' . Helpers::money($variant['price']) . "</b>\n"
-            . $lang->get('transfer_content') . ': <code>' . $paymentCode . '</code>';
+            . $lang->get('transfer_content') . ': <code>' . $paymentCode . "</code>\n"
+            . '🏦 Bank: <b>' . Helpers::escape($bank['bank_id']) . '</b> | STK: <code>'
+            . Helpers::escape($bank['account_number']) . '</code>';
         $keyboard = [[['text' => $lang->get('products_button'), 'callback_data' => 'products']]];
 
         try {
             $this->telegram->replaceWithPhoto($chatId, $messageId, $this->vietQr->imageUrl($paymentCode, (float) $variant['price']), $caption, $keyboard);
         } catch (Throwable $error) {
             error_log('Order QR delivery failed: ' . $error::class);
-            $bank = $this->vietQr->transferDetails();
             $text = $caption . "\n\n<i>" . $lang->get('qr_unavailable') . "</i>\n\n"
                 . '<b>' . $lang->get('bank') . ':</b> ' . Helpers::escape($bank['bank_id']) . "\n"
                 . '<b>' . $lang->get('account_number') . ':</b> <code>' . Helpers::escape($bank['account_number']) . "</code>\n"

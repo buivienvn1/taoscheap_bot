@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 final class Telegram
 {
+    private const QR_CACHE_TTL = 2592000;
+    private const QR_RENDERER_VERSION = 'vietqr-svg-gd-v2';
+
     private string $apiUrl;
+    private string $qrCacheFile;
     private CurlHandle $curl;
 
     public function __construct(string $token)
     {
         $this->apiUrl = 'https://api.telegram.org/bot' . $token . '/';
+        $this->qrCacheFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR
+            . 'telegram_qr_' . substr(hash('sha256', $token . self::QR_RENDERER_VERSION), 0, 24) . '.json';
         $this->curl = curl_init();
     }
 
@@ -53,37 +59,57 @@ final class Telegram
             $payload['reply_markup'] = json_encode(['inline_keyboard' => $keyboard], JSON_UNESCAPED_UNICODE);
         }
 
-        $reference = substr(hash('sha256', $photo), 0, 12);
-        try {
+        $parts = parse_url($photo);
+        if (($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') !== 'img.vietqr.io') {
             return $this->request('sendPhoto', $payload);
-        } catch (RuntimeException $error) {
-            error_log(sprintf(
-                'QR URL send failed [ref=%s]: %s',
-                $reference,
-                $error->getMessage()
-            ));
-            if (!str_contains($error->getMessage(), 'failed to get HTTP URL content')) {
-                throw $error;
+        }
+
+        $startedAt = microtime(true);
+        $reference = substr(hash('sha256', $photo), 0, 12);
+        $cacheKey = hash('sha256', self::QR_RENDERER_VERSION . "\0" . $photo);
+        $cachedFileId = $this->cachedQrFileId($cacheKey);
+        if ($cachedFileId !== null) {
+            try {
+                $payload['photo'] = $cachedFileId;
+                $result = $this->request('sendPhoto', $payload);
+                error_log(sprintf('QR cache hit [ref=%s total_ms=%d]', $reference, $this->elapsedMs($startedAt)));
+                return $result;
+            } catch (RuntimeException $error) {
+                $this->forgetCachedQrFileId($cacheKey);
+                error_log(sprintf('QR cache invalid [ref=%s]: %s', $reference, $error->getMessage()));
+                $payload['photo'] = $photo;
             }
         }
 
+        $downloadStartedAt = microtime(true);
         $image = $this->downloadImage($photo, $reference);
+        $downloadMs = $this->elapsedMs($downloadStartedAt);
         try {
             $payload['photo'] = new CURLFile($image['path'], $image['mime'], $image['name']);
+            $uploadStartedAt = microtime(true);
             $result = $this->request('sendPhoto', $payload);
+            $uploadMs = $this->elapsedMs($uploadStartedAt);
+            $fileId = $this->photoFileId($result);
+            if ($fileId !== null) {
+                $this->cacheQrFileId($cacheKey, $fileId);
+            }
             error_log(sprintf(
-                'QR upload succeeded [ref=%s mime=%s size=%d]',
+                'QR upload succeeded [ref=%s mime=%s size=%d download_ms=%d upload_ms=%d total_ms=%d]',
                 $reference,
                 $image['mime'],
-                $image['size']
+                $image['size'],
+                $downloadMs,
+                $uploadMs,
+                $this->elapsedMs($startedAt)
             ));
             return $result;
         } catch (Throwable $error) {
             error_log(sprintf(
-                'QR upload failed [ref=%s mime=%s size=%d]: %s',
+                'QR upload failed [ref=%s mime=%s size=%d total_ms=%d]: %s',
                 $reference,
                 $image['mime'],
                 $image['size'],
+                $this->elapsedMs($startedAt),
                 $error->getMessage()
             ));
             throw $error;
@@ -235,6 +261,73 @@ final class Telegram
             'name' => 'vietqr.' . $extension,
             'size' => $size,
         ];
+    }
+
+    private function elapsedMs(float $startedAt): int
+    {
+        return (int) round((microtime(true) - $startedAt) * 1000);
+    }
+
+    private function photoFileId(array $result): ?string
+    {
+        $photos = $result['result']['photo'] ?? null;
+        if (!is_array($photos) || $photos === []) {
+            return null;
+        }
+        $photo = end($photos);
+        return is_array($photo) && isset($photo['file_id']) ? (string) $photo['file_id'] : null;
+    }
+
+    private function cachedQrFileId(string $key): ?string
+    {
+        $cache = $this->readQrCache();
+        $entry = $cache[$key] ?? null;
+        if (!is_array($entry) || !isset($entry['file_id'], $entry['created_at'])
+            || (int) $entry['created_at'] < time() - self::QR_CACHE_TTL) {
+            return null;
+        }
+        return (string) $entry['file_id'];
+    }
+
+    private function cacheQrFileId(string $key, string $fileId): void
+    {
+        $cache = $this->readQrCache();
+        $minimumCreatedAt = time() - self::QR_CACHE_TTL;
+        $cache = array_filter($cache, static fn ($entry): bool => is_array($entry)
+            && (int) ($entry['created_at'] ?? 0) >= $minimumCreatedAt);
+        $cache[$key] = ['file_id' => $fileId, 'created_at' => time()];
+        if (count($cache) > 500) {
+            uasort($cache, static fn (array $a, array $b): int => (int) $b['created_at'] <=> (int) $a['created_at']);
+            $cache = array_slice($cache, 0, 500, true);
+        }
+        $this->writeQrCache($cache);
+    }
+
+    private function forgetCachedQrFileId(string $key): void
+    {
+        $cache = $this->readQrCache();
+        unset($cache[$key]);
+        $this->writeQrCache($cache);
+    }
+
+    private function readQrCache(): array
+    {
+        $json = @file_get_contents($this->qrCacheFile);
+        if ($json === false) {
+            return [];
+        }
+        $cache = json_decode($json, true);
+        return is_array($cache) ? $cache : [];
+    }
+
+    private function writeQrCache(array $cache): void
+    {
+        $json = json_encode($cache, JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return;
+        }
+        @file_put_contents($this->qrCacheFile, $json, LOCK_EX);
+        @chmod($this->qrCacheFile, 0600);
     }
 
     private function renderVietQrPng(string $svg, string $file): void

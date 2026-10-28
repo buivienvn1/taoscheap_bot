@@ -18,8 +18,11 @@ final class DepositHandler
             $this->db->execute("INSERT INTO deposits (user_id, code, status) VALUES (?, ?, 'pending')", [$userId, $code]);
             $deposit = ['code' => $code];
         }
+        $bank = $this->vietQr->transferDetails();
         $caption = '<blockquote><b>' . $lang->get('deposit_title') . "</b></blockquote>\n\n"
             . $lang->get('transfer_content') . ': <code>' . $deposit['code'] . "</code>\n"
+            . '🏦 Bank: <b>' . Helpers::escape($bank['bank_id']) . '</b> | STK: <code>'
+            . Helpers::escape($bank['account_number']) . "</code>\n"
             . $lang->get('minimum') . ': <b>' . Helpers::money($this->minDeposit) . "</b>\n\n"
             . $lang->get('deposit_code_note');
         $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
@@ -28,7 +31,6 @@ final class DepositHandler
             $this->telegram->replaceWithPhoto($chatId, $messageId, $this->vietQr->imageUrl($deposit['code']), $caption, $keyboard);
         } catch (Throwable $error) {
             error_log('Deposit QR delivery failed: ' . $error::class);
-            $bank = $this->vietQr->transferDetails();
             $text = $caption . "\n\n<i>" . $lang->get('qr_unavailable') . "</i>\n\n"
                 . '<b>' . $lang->get('bank') . ':</b> ' . Helpers::escape($bank['bank_id']) . "\n"
                 . '<b>' . $lang->get('account_number') . ':</b> <code>' . Helpers::escape($bank['account_number']) . "</code>\n"
