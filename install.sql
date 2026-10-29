@@ -6,8 +6,6 @@ SET time_zone = '+07:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS schema_migrations;
-DROP TABLE IF EXISTS payment_source_transactions;
-DROP TABLE IF EXISTS payment_sync_states;
 DROP TABLE IF EXISTS stock_subscriptions;
 DROP TABLE IF EXISTS notification_outbox;
 DROP TABLE IF EXISTS checkout_selections;
@@ -233,10 +231,8 @@ CREATE TABLE notification_outbox (
     event_key VARCHAR(190) NOT NULL,
     message_key VARCHAR(100) NOT NULL,
     message_params LONGTEXT NOT NULL,
-    status ENUM('pending', 'processing', 'sent', 'failed') NOT NULL DEFAULT 'pending',
+    status ENUM('pending', 'sent', 'failed') NOT NULL DEFAULT 'pending',
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
-    last_attempt_at DATETIME NULL,
-    last_error VARCHAR(190) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at DATETIME NULL,
     PRIMARY KEY (id),
@@ -285,12 +281,8 @@ CREATE TABLE payment_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     provider VARCHAR(30) NOT NULL,
     provider_event_id VARCHAR(150) NOT NULL,
-    destination_account VARCHAR(190) NOT NULL DEFAULT '',
     transfer_content VARCHAR(255) NOT NULL DEFAULT '',
     amount DECIMAL(15,2) NOT NULL,
-    currency VARCHAR(12) NOT NULL DEFAULT 'VND',
-    direction VARCHAR(20) NOT NULL DEFAULT 'incoming',
-    occurred_at DATETIME NULL,
     order_id BIGINT UNSIGNED NULL,
     deposit_id BIGINT UNSIGNED NULL,
     result_type VARCHAR(50) NULL,
@@ -299,53 +291,15 @@ CREATE TABLE payment_events (
     payload LONGTEXT NULL,
     processed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_payment_event (provider, destination_account, provider_event_id),
+    UNIQUE KEY uq_payment_event (provider, provider_event_id),
     KEY idx_payment_events_order (order_id),
     KEY idx_payment_events_deposit (deposit_id),
-    KEY idx_payment_events_occurred (provider, occurred_at),
     CONSTRAINT fk_payment_events_order
         FOREIGN KEY (order_id) REFERENCES orders(id)
         ON UPDATE RESTRICT ON DELETE SET NULL,
     CONSTRAINT fk_payment_events_deposit
         FOREIGN KEY (deposit_id) REFERENCES deposits(id)
         ON UPDATE RESTRICT ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE payment_source_transactions (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    provider VARCHAR(30) NOT NULL,
-    source_account VARCHAR(190) NOT NULL,
-    provider_transaction_id VARCHAR(150) NOT NULL,
-    direction VARCHAR(20) NOT NULL,
-    amount DECIMAL(24,8) NOT NULL,
-    currency VARCHAR(12) NOT NULL,
-    reference_text VARCHAR(500) NOT NULL DEFAULT '',
-    occurred_at DATETIME NULL,
-    discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    raw_payload LONGTEXT NULL,
-    processing_status ENUM('observed', 'processed', 'ignored', 'review', 'failed') NOT NULL DEFAULT 'observed',
-    payment_event_id BIGINT UNSIGNED NULL,
-    result_message VARCHAR(190) NULL,
-    processed_at DATETIME NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_payment_source_transaction (provider, source_account, provider_transaction_id),
-    KEY idx_payment_source_processing (provider, processing_status, id),
-    KEY idx_payment_source_occurred (provider, source_account, occurred_at),
-    CONSTRAINT fk_payment_source_event
-        FOREIGN KEY (payment_event_id) REFERENCES payment_events(id)
-        ON UPDATE RESTRICT ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE payment_sync_states (
-    provider VARCHAR(30) NOT NULL,
-    source_account VARCHAR(190) NOT NULL,
-    last_success_at DATETIME NULL,
-    last_window_from DATETIME NULL,
-    last_window_to DATETIME NULL,
-    last_error_code VARCHAR(100) NULL,
-    consecutive_failures INT UNSIGNED NOT NULL DEFAULT 0,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (provider, source_account)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (
@@ -371,8 +325,7 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('003_add_multilingual_settings.sql', NULL),
     ('004_product_quantity_checkout.sql', NULL),
     ('005_stock_subscriptions.sql', NULL),
-    ('006_expand_users_telegram_metadata.sql', NULL),
-    ('007_payment_provider_architecture.sql', NULL);
+    ('006_expand_users_telegram_metadata.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),
