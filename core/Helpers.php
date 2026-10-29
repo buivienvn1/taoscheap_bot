@@ -53,7 +53,8 @@ final class Helpers
 
     public static function extractMultilingualText(?string $text, string $language): string
     {
-        $text = trim($text ?? '');
+        $text = str_replace(["\r\n", "\r"], "\n", $text ?? '');
+        $text = trim($text);
         if ($text === '') return '';
 
         $blocks = ['vi' => [], 'en' => []];

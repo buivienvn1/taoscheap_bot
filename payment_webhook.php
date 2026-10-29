@@ -26,7 +26,7 @@ if ($eventId === '' || !$isIncoming) {
 
 try {
     $outbox = new NotificationOutbox($db, $telegram);
-    $processor = new PaymentProcessor($db, $outbox, $app);
+    $processor = new PaymentProcessor($db, $outbox, $app, $stockFulfillment);
     $result = $processor->process([
         'provider' => (string) $app['payment_provider'],
         'provider_event_id' => $eventId,

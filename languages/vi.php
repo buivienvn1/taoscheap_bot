@@ -124,6 +124,7 @@ return [
     'order_expired_wallet_refunded' => "⌛ <b>Đơn :order đã hết hạn</b>\n\nĐã hoàn <b>:amount</b> vào ví.",
     'wallet_purchase_quantity' => 'Số lượng: :quantity',
     'request_processing' => 'Yêu cầu đang được xử lý. Vui lòng chờ.',
+    'supplier_fulfillment_pending' => 'Nhà cung cấp đang xác nhận đơn. Hệ thống sẽ tiếp tục xử lý an toàn, không chuyển sang nguồn khác lúc này.',
     'order_result_short_payment' => 'Khoản chuyển :amount thấp hơn tổng đơn. Toàn bộ tiền đã được cộng vào ví. Mã đơn: :order.',
     'order_result_out_of_stock' => 'Kho không đủ để giao toàn bộ đơn. :amount đã được cộng vào ví. Mã đơn: :order.',
     'order_result_unavailable' => 'Sản phẩm đã ngừng bán. :amount đã được cộng vào ví. Mã đơn: :order.',

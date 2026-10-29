@@ -14,13 +14,11 @@ final class ProductHandler
     {
         $products = $this->db->fetchAll(
             "SELECT p.id, p.name,
-                    CASE WHEN v.supplier_type = 'manual' THEN COALESCE(s.available, 0) ELSE 0 END stock
+                    CASE WHEN COALESCE(src.has_api,0)=1 THEN 100 ELSE COALESCE(s.available,0) END stock
              FROM products p
              JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
-             LEFT JOIN (
-                 SELECT variant_id, COUNT(*) available
-                 FROM stocks WHERE is_sold = 0 GROUP BY variant_id
-             ) s ON s.variant_id = v.id
+             LEFT JOIN (SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0 GROUP BY variant_id) s ON s.variant_id=v.id
+             LEFT JOIN (SELECT variant_id,MAX(source_type='api' AND provider_key IS NOT NULL AND remote_product_code IS NOT NULL) has_api FROM supplier_sources WHERE status=1 GROUP BY variant_id) src ON src.variant_id=v.id
              WHERE p.status = 1
              ORDER BY p.sort_order, p.id LIMIT 50"
         );
@@ -91,11 +89,12 @@ final class ProductHandler
     public function subscribeToStock(int $chatId, int $messageId, int $userId, int $productId, Language $lang): void
     {
         $product = $this->db->fetch(
-            "SELECT p.id,v.supplier_type,
-                    CASE WHEN v.supplier_type = 'manual' THEN COALESCE(stock.available, 0) ELSE 0 END stock
+            "SELECT p.id,COALESCE(src.has_api,0) has_api,
+                    CASE WHEN COALESCE(src.has_api,0)=1 THEN 100 ELSE COALESCE(stock.available,0) END stock
              FROM products p
              JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
-             LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) stock ON stock.variant_id = v.id
+             LEFT JOIN (SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0 GROUP BY variant_id) stock ON stock.variant_id=v.id
+             LEFT JOIN (SELECT variant_id,MAX(source_type='api' AND provider_key IS NOT NULL AND remote_product_code IS NOT NULL) has_api FROM supplier_sources WHERE status=1 GROUP BY variant_id) src ON src.variant_id=v.id
              WHERE p.id = ? AND p.status = 1",
             [$productId]
         );
@@ -103,7 +102,7 @@ final class ProductHandler
             $this->list($chatId, $messageId, $lang);
             return;
         }
-        if ((int) $product['stock'] === 0 && $product['supplier_type'] === 'manual') {
+        if ((int) $product['stock'] === 0 && !(int) $product['has_api']) {
             $this->db->execute(
                 "INSERT INTO stock_subscriptions(user_id,product_id,status,notified_at)
                  VALUES(?,?,'pending',NULL)
@@ -144,13 +143,14 @@ final class ProductHandler
         Language $lang
     ): void {
         $product = $this->db->fetch(
-            "SELECT p.id, p.name, p.description, p.features, v.id variant_id, v.price, v.supplier_type,
-                    CASE WHEN v.supplier_type = 'manual' THEN COALESCE(stock.available, 0) ELSE 0 END stock,
-                    COALESCE(sold.total, 0) sold
+            "SELECT p.id,p.name,p.description,p.features,v.id variant_id,v.price,COALESCE(src.has_api,0) has_api,
+                    CASE WHEN COALESCE(src.has_api,0)=1 THEN 100 ELSE COALESCE(stock.available,0) END stock,
+                    COALESCE(sold.total,0) sold
              FROM products p
-             JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
-             LEFT JOIN (SELECT variant_id, COUNT(*) available FROM stocks WHERE is_sold = 0 GROUP BY variant_id) stock ON stock.variant_id = v.id
-             LEFT JOIN (SELECT variant_id, COUNT(*) total FROM stocks WHERE is_sold = 1 GROUP BY variant_id) sold ON sold.variant_id = v.id
+             JOIN variants v ON v.id=p.source_variant_id AND v.status=1
+             LEFT JOIN (SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0 GROUP BY variant_id) stock ON stock.variant_id=v.id
+             LEFT JOIN (SELECT variant_id,COUNT(*) total FROM stocks WHERE is_sold=1 GROUP BY variant_id) sold ON sold.variant_id=v.id
+             LEFT JOIN (SELECT variant_id,MAX(source_type='api' AND provider_key IS NOT NULL AND remote_product_code IS NOT NULL) has_api FROM supplier_sources WHERE status=1 GROUP BY variant_id) src ON src.variant_id=v.id
              WHERE p.id = ? AND p.status = 1",
             [$productId]
         );
@@ -198,13 +198,11 @@ final class ProductHandler
             if ($stock >= 5) $quick[] = ['text' => $lang->get('select_five'), 'callback_data' => $base . 'five'];
             if ($stock >= 10) $quick[] = ['text' => $lang->get('select_ten'), 'callback_data' => $base . 'ten'];
             if ($quick !== []) $keyboard[] = $quick;
-            if ($product['supplier_type'] === 'manual') {
-                $keyboard[] = [[
-                    'text' => $lang->get('checkout'),
-                    'callback_data' => 'checkout:' . $productId . ':' . $version,
-                ]];
-            }
-        } elseif ($product['supplier_type'] === 'manual') {
+            $keyboard[] = [[
+                'text' => $lang->get('checkout'),
+                'callback_data' => 'checkout:' . $productId . ':' . $version,
+            ]];
+        } elseif (!(int) $product['has_api']) {
             $subscription = $this->db->fetch(
                 "SELECT id FROM stock_subscriptions WHERE user_id=? AND product_id=? AND status='pending'",
                 [$userId, $productId]

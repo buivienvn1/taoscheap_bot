@@ -14,6 +14,8 @@ DROP TABLE IF EXISTS notification_outbox;
 DROP TABLE IF EXISTS checkout_selections;
 DROP TABLE IF EXISTS purchase_requests;
 DROP TABLE IF EXISTS order_deliveries;
+DROP TABLE IF EXISTS supplier_fulfillment_attempts;
+DROP TABLE IF EXISTS supplier_sources;
 DROP TABLE IF EXISTS payment_events;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS deposits;
@@ -94,6 +96,24 @@ ALTER TABLE products
         FOREIGN KEY (source_variant_id) REFERENCES variants(id)
         ON UPDATE RESTRICT ON DELETE SET NULL;
 
+CREATE TABLE supplier_sources (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    variant_id BIGINT UNSIGNED NOT NULL,
+    source_type ENUM('manual', 'api') NOT NULL,
+    provider_key VARCHAR(50) NULL,
+    remote_product_code VARCHAR(100) NULL,
+    priority SMALLINT UNSIGNED NOT NULL,
+    status TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_supplier_sources_priority (variant_id, priority),
+    KEY idx_supplier_sources_active (variant_id, status, priority),
+    CONSTRAINT fk_supplier_sources_variant
+        FOREIGN KEY (variant_id) REFERENCES variants(id)
+        ON UPDATE RESTRICT ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE orders (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     order_code VARCHAR(30) NOT NULL,
@@ -149,21 +169,52 @@ CREATE TABLE stocks (
         ON UPDATE RESTRICT ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE supplier_fulfillment_attempts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    order_id BIGINT UNSIGNED NOT NULL,
+    supplier_source_id BIGINT UNSIGNED NOT NULL,
+    idempotency_key VARCHAR(100) NOT NULL,
+    provider_order_id VARCHAR(100) NULL,
+    status ENUM('pending', 'processing', 'completed', 'failed', 'unknown') NOT NULL DEFAULT 'pending',
+    error_code VARCHAR(100) NULL,
+    error_message VARCHAR(255) NULL,
+    response_payload MEDIUMTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    completed_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_supplier_attempt_idempotency (idempotency_key),
+    UNIQUE KEY uq_supplier_attempt_source (order_id, supplier_source_id),
+    KEY idx_supplier_attempt_status (status, updated_at),
+    CONSTRAINT fk_supplier_attempt_order
+        FOREIGN KEY (order_id) REFERENCES orders(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_supplier_attempt_source
+        FOREIGN KEY (supplier_source_id) REFERENCES supplier_sources(id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE order_deliveries (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     order_id BIGINT UNSIGNED NOT NULL,
-    stock_id BIGINT UNSIGNED NOT NULL,
+    stock_id BIGINT UNSIGNED NULL,
+    supplier_source_id BIGINT UNSIGNED NULL,
+    provider_order_id VARCHAR(100) NULL,
     content TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_order_deliveries_stock (stock_id),
     KEY idx_order_deliveries_order (order_id, id),
+    KEY idx_order_deliveries_source (supplier_source_id),
     CONSTRAINT fk_order_deliveries_order
         FOREIGN KEY (order_id) REFERENCES orders(id)
         ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT fk_order_deliveries_stock
         FOREIGN KEY (stock_id) REFERENCES stocks(id)
-        ON UPDATE RESTRICT ON DELETE RESTRICT
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_order_deliveries_source
+        FOREIGN KEY (supplier_source_id) REFERENCES supplier_sources(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE purchase_requests (
@@ -436,7 +487,9 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('005_stock_subscriptions.sql', NULL),
     ('006_expand_users_telegram_metadata.sql', NULL),
     ('008_third_party_acb_feed.sql', NULL),
-    ('009_notification_history.sql', NULL);
+    ('009_notification_history.sql', NULL),
+    ('010_hybrid_payment.sql', NULL),
+    ('011_multi_supplier_fulfillment.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),

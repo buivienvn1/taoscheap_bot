@@ -56,15 +56,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $description = trim((string) ($_POST['description'] ?? ''));
     $features = trim((string) ($_POST['features'] ?? ''));
     $price = number_format(max(0, (float) ($_POST['price'] ?? 0)), 2, '.', '');
-    $supplierType = ($_POST['supplier_type'] ?? 'manual') === 'api' ? 'api' : 'manual';
-    $providerCode = trim((string) ($_POST['provider_code'] ?? '')) ?: null;
     $sortOrder = (int) ($_POST['sort_order'] ?? 0);
     $status = isset($_POST['status']) ? 1 : 0;
     if ($name === '') {
         redirectAdmin('products', 'Tên sản phẩm không hợp lệ.');
     }
 
-    $db->transaction(function (Database $db) use ($id, $name, $description, $features, $price, $supplierType, $providerCode, $sortOrder, $status): void {
+    $db->transaction(function (Database $db) use ($id, $name, $description, $features, $price, $sortOrder, $status): void {
         if ($id > 0) {
             $product = $db->fetch('SELECT * FROM products WHERE id=? FOR UPDATE', [$id]);
             if ($product === null) {
@@ -76,8 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             if ($product['source_variant_id'] !== null) {
                 $db->execute(
-                    'UPDATE variants SET name=?,price=?,supplier_type=?,provider_code=?,status=?,sort_order=0 WHERE id=?',
-                    [$name, $price, $supplierType, $providerCode, $status, $product['source_variant_id']]
+                    'UPDATE variants SET name=?,price=?,status=?,sort_order=0 WHERE id=?',
+                    [$name, $price, $status, $product['source_variant_id']]
                 );
             }
             return;
@@ -89,23 +87,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
         $productId = $db->lastInsertId();
         $db->execute(
-            'INSERT INTO variants(product_id,name,price,supplier_type,provider_code,sort_order,status) VALUES(?,?,?,?,?,0,?)',
-            [$productId, $name, $price, $supplierType, $providerCode, $status]
+            "INSERT INTO variants(product_id,name,price,supplier_type,provider_code,sort_order,status) VALUES(?,?,?,'manual',NULL,0,?)",
+            [$productId, $name, $price, $status]
         );
-        $db->execute('UPDATE products SET source_variant_id=? WHERE id=?', [$db->lastInsertId(), $productId]);
+        $variantId = $db->lastInsertId();
+        $db->execute('UPDATE products SET source_variant_id=? WHERE id=?', [$variantId, $productId]);
+        $db->execute("INSERT INTO supplier_sources(variant_id,source_type,priority,status) VALUES(?,'manual',0,1)", [$variantId]);
     });
     redirectAdmin('products', $id > 0 ? 'Đã cập nhật sản phẩm.' : 'Đã thêm sản phẩm.');
 }
 
 if ($editId > 0) {
     $editing = $db->fetch(
-        'SELECT p.*,v.price,v.supplier_type,v.provider_code FROM products p LEFT JOIN variants v ON v.id=p.source_variant_id WHERE p.id=?',
+        'SELECT p.*,v.price FROM products p LEFT JOIN variants v ON v.id=p.source_variant_id WHERE p.id=?',
         [$editId]
     );
 }
 
 $products = $db->fetchAll(
-    'SELECT p.*,v.price,v.supplier_type,v.provider_code,
+    'SELECT p.*,v.price,
         (SELECT COUNT(*) FROM orders o JOIN variants ov ON ov.id=o.variant_id WHERE ov.product_id=p.id) order_count,
         (SELECT COUNT(*) FROM stocks s JOIN variants sv ON sv.id=s.variant_id WHERE sv.product_id=p.id AND s.is_sold=0) available
      FROM products p
@@ -130,27 +130,8 @@ $form = $editing ?? [];
         <small class="help-text"><?= e('Có thể dùng cùng cú pháp <vi>...</vi>, <en>...</en> và Telegram HTML.') ?></small>
         <textarea id="product_features" name="features" rows="6"><?= e($form['features'] ?? '') ?></textarea>
         <div class="form-grid">
-            <div>
-                <label for="product_price">Giá</label>
-                <input id="product_price" name="price" type="number" min="0" step="0.01" value="<?= e($form['price'] ?? '') ?>" required>
-            </div>
-            <div>
-                <label for="supplier_type">Nguồn hàng</label>
-                <select id="supplier_type" name="supplier_type">
-                    <option value="manual" <?= ($form['supplier_type'] ?? 'manual') === 'manual' ? 'selected' : '' ?>>Kho nhập tay</option>
-                    <option value="api" <?= ($form['supplier_type'] ?? '') === 'api' ? 'selected' : '' ?>>API nhà cung cấp</option>
-                </select>
-            </div>
-        </div>
-        <div class="form-grid">
-            <div>
-                <label for="provider_code">Mã API (nếu có)</label>
-                <input id="provider_code" name="provider_code" value="<?= e($form['provider_code'] ?? '') ?>">
-            </div>
-            <div>
-                <label for="sort_order">Thứ tự</label>
-                <input id="sort_order" name="sort_order" type="number" value="<?= e($form['sort_order'] ?? 0) ?>">
-            </div>
+            <div><label for="product_price">Giá</label><input id="product_price" name="price" type="number" min="0" step="0.01" value="<?= e($form['price'] ?? '') ?>" required></div>
+            <div><label for="sort_order">Thứ tự</label><input id="sort_order" name="sort_order" type="number" value="<?= e($form['sort_order'] ?? 0) ?>"></div>
         </div>
         <label class="inline-check"><input type="checkbox" name="status" <?= !isset($form['status']) || (int) $form['status'] === 1 ? 'checked' : '' ?>> Hiển thị sản phẩm</label>
         <div class="actions">
@@ -162,13 +143,12 @@ $form = $editing ?? [];
 
 <div class="card table-wrap">
     <table>
-        <thead><tr><th>Sản phẩm</th><th>Giá</th><th>Nguồn</th><th>Kho</th><th>Đơn</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+        <thead><tr><th>Sản phẩm</th><th>Giá</th><th>Kho tay</th><th>Đơn</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
         <tbody>
         <?php foreach ($products as $product): ?>
             <tr>
                 <td><?= e($product['name']) ?></td>
                 <td><?= e(Helpers::money($product['price'] ?? 0)) ?></td>
-                <td><?= e($product['supplier_type'] ?? '-') ?></td>
                 <td><?= e($product['available']) ?></td>
                 <td><?= e($product['order_count']) ?></td>
                 <td><span class="badge <?= (int) $product['status'] === 1 ? 'success' : 'muted' ?>"><?= (int) $product['status'] === 1 ? 'Đang bán' : 'Đã ẩn' ?></span></td>

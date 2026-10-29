@@ -59,7 +59,9 @@ final class Database
 
         try {
             $result = $callback($this);
-            $this->pdo->commit();
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->commit();
+            }
             return $result;
         } catch (Throwable $error) {
             if ($this->pdo->inTransaction()) {

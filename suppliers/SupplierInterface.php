@@ -4,8 +4,29 @@ declare(strict_types=1);
 
 interface SupplierInterface
 {
-    public function getStock(int $variantId): int;
+    public function key(): string;
 
-    /** @return array{success: bool, content?: string, error?: string} */
-    public function deliver(int $variantId, array $orderContext): array;
+    public function name(): string;
+
+    /** @return array<string, int|float|string> */
+    public function getBalance(): array;
+
+    public function getStock(string $remoteProductCode): int;
+
+    /**
+     * @return array{
+     *     success: bool,
+     *     items?: list<string>,
+     *     provider_order_id?: string,
+     *     error_code?: string,
+     *     error?: string,
+     *     retryable?: bool,
+     *     raw?: array<string, mixed>
+     * }
+     */
+    public function deliver(
+        string $remoteProductCode,
+        int $quantity,
+        string $idempotencyKey
+    ): array;
 }

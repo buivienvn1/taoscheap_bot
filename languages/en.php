@@ -124,6 +124,7 @@ return [
     'order_expired_wallet_refunded' => "⌛ <b>Order :order expired</b>\n\n<b>:amount</b> was refunded to your wallet.",
     'wallet_purchase_quantity' => 'Quantity: :quantity',
     'request_processing' => 'This request is being processed. Please wait.',
+    'supplier_fulfillment_pending' => 'The supplier is confirming the order. Processing will continue safely without switching suppliers yet.',
     'order_result_short_payment' => 'The :amount transfer is below the order total. The full amount was credited to your wallet. Order: :order.',
     'order_result_out_of_stock' => 'There was not enough stock to fulfill the entire order. :amount was credited to your wallet. Order: :order.',
     'order_result_unavailable' => 'The product is no longer available. :amount was credited to your wallet. Order: :order.',

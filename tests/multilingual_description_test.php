@@ -49,12 +49,12 @@ $assertSame(
     'Giữ Telegram HTML và chuyển br thành xuống dòng'
 );
 $assertSame(
-    '5 < 10 & 10 > 5',
+    '5 ' . chr(38) . 'lt; 10 ' . chr(38) . 'amp; 10 ' . chr(38) . 'gt; 5',
     Helpers::sanitizeTelegramHtml('5 < 10 & 10 > 5'),
     'Escape ký tự đặc biệt trong văn bản thường'
 );
 $assertSame(
-    '<a href="https://example.com/?a=1&b=2">Liên kết</a> nguy hiểm',
+    '<a href="https://example.com/?a=1' . chr(38) . 'amp;b=2">Liên kết</a> nguy hiểm',
     Helpers::sanitizeTelegramHtml('<a href="https://example.com/?a=1&b=2">Liên kết</a> <script>nguy hiểm</script>'),
     'Giữ liên kết an toàn và loại bỏ thẻ không hợp lệ'
 );

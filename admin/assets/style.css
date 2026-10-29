@@ -24,9 +24,17 @@ a {
 }
 
 aside {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     background: #111827;
     color: #fff;
-    padding: 24px 16px
+    padding: 24px 16px;
+    scrollbar-width: thin;
+    scrollbar-color: #374151 transparent
 }
 
 aside a {
@@ -36,9 +44,28 @@ aside a {
     border-radius: 7px
 }
 
-aside a:hover {
-    background: #1f2937;
+aside a:hover,
+aside a.active {
+    background: #2563eb;
     color: #fff
+}
+
+.brand small,
+.nav-label {
+    color: #94a3b8
+}
+
+.nav-label {
+    display: block;
+    margin: 20px 10px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase
+}
+
+.logout {
+    margin-top: auto;
+    border-top: 1px solid #374151
 }
 
 main {
@@ -286,6 +313,17 @@ input[type="submit"]:disabled {
     box-sizing: border-box
 }
 
+.source-grid {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr);
+    gap: 8px
+}
+
+.source-grid input,
+.source-grid select {
+    margin: 0
+}
+
 .stock-content {
     display: block;
     max-width: 420px;
@@ -299,11 +337,34 @@ input[type="submit"]:disabled {
     }
 
     aside {
-        position: static
+        position: sticky;
+        z-index: 10;
+        height: auto;
+        max-height: none;
+        padding: 10px;
+        overflow-x: auto;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px
+    }
+
+    aside .brand,
+    aside .nav-label {
+        display: none
+    }
+
+    aside nav {
+        display: flex;
+        gap: 4px
     }
 
     aside a {
-        display: inline-block
+        flex: 0 0 auto
+    }
+
+    aside .logout {
+        margin: 0;
+        border: 0
     }
 
     main {
@@ -311,7 +372,8 @@ input[type="submit"]:disabled {
     }
 
     .form-grid,
-    .filter-form {
+    .filter-form,
+    .source-grid {
         grid-template-columns: 1fr
     }
 

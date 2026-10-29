@@ -4,41 +4,80 @@ declare(strict_types=1);
 
 final class PaymentProcessor
 {
-    public function __construct(private Database $db, private NotificationOutbox $outbox, private array $app)
-    {
+    public function __construct(
+        private Database $db,
+        private NotificationOutbox $outbox,
+        private array $app,
+        private StockFulfillmentService $fulfillment
+    ) {
     }
 
     public function process(array $payment): array
     {
         $amount = self::normalizeAmount($payment['amount'] ?? null);
-        $content = (string) ($payment['content'] ?? '');
-        $codes = PaymentCodeRegistry::extractCodes($content);
+        $codes = PaymentCodeRegistry::extractCodes((string) ($payment['content'] ?? ''));
         if (($payment['direction'] ?? '') !== 'IN' || $amount === null) return ['result' => 'invalid', 'outbox_id' => null];
         if (count($codes) !== 1) return ['result' => count($codes) > 1 ? 'multiple_codes' : 'unmatched', 'outbox_id' => null];
         $code = $codes[0];
+        $registry = $this->db->fetch('SELECT * FROM payment_code_registry WHERE code=?', [$code]);
+        if ($registry === null) return ['result' => 'unknown_code', 'outbox_id' => null];
+        if ($registry['status'] === 'processed') return ['result' => 'duplicate_code', 'outbox_id' => null];
+        if ($registry['status'] !== 'reserved' || $registry['request_id'] === null) return ['result' => 'review', 'outbox_id' => null];
 
-        return $this->db->transaction(function (Database $db) use ($payment, $amount, $code): array {
-            $registry = $db->fetch('SELECT * FROM payment_code_registry WHERE code=? FOR UPDATE', [$code]);
-            if ($registry === null) return ['result' => 'unknown_code', 'outbox_id' => null];
-            if ($registry['status'] === 'processed') return ['result' => 'duplicate_code', 'outbox_id' => null];
-            if ($registry['status'] !== 'reserved' || $registry['request_id'] === null) return ['result' => 'review', 'outbox_id' => null];
+        if ($registry['request_type'] === 'order') {
+            return $this->processOrderOutsideRemoteTransaction($registry, $payment, $amount, $code);
+        }
 
+        return $this->db->transaction(function (Database $db) use ($registry, $payment, $amount, $code): array {
+            $locked = $db->fetch('SELECT * FROM payment_code_registry WHERE id=? FOR UPDATE', [$registry['id']]);
+            if ($locked['status'] === 'processed') return ['result' => 'duplicate_code', 'outbox_id' => null];
             $eventId = $this->auditEvent($payment, $amount, $code);
-            $result = $registry['request_type'] === 'deposit'
-                ? $this->processDeposit((int) $registry['request_id'], $amount, $code)
-                : $this->processOrder((int) $registry['request_id'], $amount, $code);
-            if ($result['final']) {
-                $db->execute(
-                    "UPDATE payment_code_registry SET status='processed',processed_amount=?,result_type=?,processed_event_id=?,processed_at=NOW() WHERE id=?",
-                    [$amount, $result['result'], $eventId, $registry['id']]
-                );
+            $result = $this->processDeposit((int) $locked['request_id'], $amount, $code);
+            $this->finalizePaymentRegistry($locked, $result, $amount, $eventId);
+            return ['result' => $result['result'], 'outbox_id' => $result['outbox_id']];
+        });
+    }
+
+    private function processOrderOutsideRemoteTransaction(array $registry, array $payment, string $amount, string $code): array
+    {
+        $prepared = $this->db->transaction(function (Database $db) use ($registry, $payment, $amount, $code): array {
+            $locked = $db->fetch('SELECT * FROM payment_code_registry WHERE id=? FOR UPDATE', [$registry['id']]);
+            if ($locked['status'] === 'processed') return ['closed' => ['result' => 'duplicate_code', 'outbox_id' => null]];
+            $order = $db->fetch("SELECT o.*,v.status variant_status,p.status product_status,u.telegram_id,u.username,u.first_name,u.last_name,u.language FROM orders o JOIN variants v ON v.id=o.variant_id JOIN products p ON p.id=v.product_id JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE", [$locked['request_id']]);
+            if ($order === null) return ['closed' => ['result' => 'review', 'outbox_id' => null]];
+            $eventId = $this->auditEvent($payment, $amount, $code);
+            if ($order['status'] === 'processing') {
+                return compact('locked', 'order', 'eventId');
             }
-            if ($eventId !== null) {
-                $db->execute(
-                    'UPDATE payment_events SET order_id=?,deposit_id=?,result_type=?,purchase_amount=?,wallet_amount=? WHERE id=?',
-                    [$result['order_id'], $result['deposit_id'], $result['result'], $result['purchase_amount'], $result['wallet_amount'], $eventId]
-                );
+            if ($order['status'] !== 'pending' || (float) $amount < (float) $order['amount'] || !(int) $order['variant_status'] || !(int) $order['product_status']) {
+                $result = $this->processOrder((int) $order['id'], $amount, $code);
+                $this->finalizePaymentRegistry($locked, $result, $amount, $eventId);
+                return ['closed' => ['result' => $result['result'], 'outbox_id' => $result['outbox_id']]];
             }
+            $db->execute("UPDATE orders SET status='processing',paid_at=NOW() WHERE id=? AND status='pending'", [$order['id']]);
+            $order['status'] = 'processing';
+            return compact('locked', 'order', 'eventId');
+        });
+        if (isset($prepared['closed'])) return $prepared['closed'];
+
+        $order = $prepared['order'];
+        $delivery = $this->fulfillment->fulfill((int) $order['id'], (int) $order['variant_id'], max(1, (int) $order['quantity']), (string) $order['order_code']);
+        if ($delivery['pending'] ?? false) return ['result' => 'fulfillment_pending', 'outbox_id' => null];
+
+        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $amount, $code): array {
+            $order = $db->fetch("SELECT o.*,u.telegram_id,u.username,u.first_name,u.last_name,u.language FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE", [$prepared['order']['id']]);
+            $locked = $db->fetch('SELECT * FROM payment_code_registry WHERE id=? FOR UPDATE', [$prepared['locked']['id']]);
+            if ($order['status'] === 'completed' || $locked['status'] === 'processed') return ['result' => 'duplicate_code', 'outbox_id' => null];
+            if ($order['status'] !== 'processing' || $locked['status'] !== 'reserved') {
+                return ['result' => 'review', 'outbox_id' => null];
+            }
+            if (!$delivery['success']) {
+                $params = ['order' => Helpers::escape((string) $order['order_code']), 'amount' => Helpers::money($amount)];
+                $result = $this->refundOrder($order, $amount, $code, 'out_of_stock', 'order_result_out_of_stock', $params);
+            } else {
+                $result = $this->completePaidOrder($order, $amount, $delivery['items'] ?? []);
+            }
+            $this->finalizePaymentRegistry($locked, $result, $amount, $prepared['eventId']);
             return ['result' => $result['result'], 'outbox_id' => $result['outbox_id']];
         });
     }
@@ -233,6 +272,31 @@ final class PaymentProcessor
         $order['total_amount'] = $total;
         $this->enqueueOrderAdmins($order, Helpers::dateTime($completedAt));
         return $this->result('order_delivered', true, $orderId, null, $total, $extra, $outboxId);
+    }
+
+    private function completePaidOrder(array $order, string $amount, array $contents): array
+    {
+        $extra = number_format((float) $amount - (float) $order['amount'], 2, '.', '');
+        $total = number_format((float) $order['amount'] + (float) $order['wallet_amount'], 2, '.', '');
+        $completedAt = date('Y-m-d H:i:s');
+        $this->db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',wallet_credited=?,completed_at=? WHERE id=?", [implode("\n", $contents), max(0, (float) $extra), $completedAt, $order['id']]);
+        $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,reference_code,note) VALUES(?,'purchase',?,'order',?,?,?)", [$order['user_id'], -((float) $order['amount']), $order['id'], $order['order_code'], $order['order_code']]);
+        if ((float) $extra > 0) $this->creditWallet($order, $extra, 'overpayment');
+        $params = ['order' => Helpers::escape((string) $order['order_code']), 'product' => (string) ($order['product_name'] ?: '-'), 'quantity' => (int) $order['quantity'], 'amount' => Helpers::money($total), 'time' => Helpers::dateTime($completedAt), 'extra' => (float) $extra > 0 ? Helpers::money($extra) : '', 'deliveries' => $contents, 'cleanup_request_type' => 'order', 'cleanup_request_id' => (int) $order['id']];
+        $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'order:' . $order['id'] . ':user', 'order_result_success', $params);
+        $order['total_amount'] = $total;
+        $this->enqueueOrderAdmins($order, Helpers::dateTime($completedAt));
+        return $this->result('order_delivered', true, (int) $order['id'], null, $total, $extra, $outboxId);
+    }
+
+    private function finalizePaymentRegistry(array $registry, array $result, string $amount, ?int $eventId): void
+    {
+        if ($result['final']) {
+            $this->db->execute("UPDATE payment_code_registry SET status='processed',processed_amount=?,result_type=?,processed_event_id=?,processed_at=NOW() WHERE id=?", [$amount, $result['result'], $eventId, $registry['id']]);
+        }
+        if ($eventId !== null) {
+            $this->db->execute('UPDATE payment_events SET order_id=?,deposit_id=?,result_type=?,purchase_amount=?,wallet_amount=? WHERE id=?', [$result['order_id'], $result['deposit_id'], $result['result'], $result['purchase_amount'], $result['wallet_amount'], $eventId]);
+        }
     }
 
     private function refundOrder(array $order, string $amount, string $code, string $reason, string $messageKey, array $params): array

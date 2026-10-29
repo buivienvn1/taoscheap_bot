@@ -10,7 +10,8 @@ final class OrderHandler
         private Database $db,
         private Telegram $telegram,
         private VietQR $vietQr,
-        private array $app
+        private array $app,
+        private StockFulfillmentService $fulfillment
     ) {
         $this->outbox = new NotificationOutbox($db, $telegram);
     }
@@ -48,18 +49,6 @@ final class OrderHandler
             $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'));
             return;
         }
-        if ($variant['supplier_type'] !== 'manual') {
-            $this->telegram->editMessage($chatId, $messageId, $lang->get('api_supplier_pending'));
-            return;
-        }
-        $available = $this->db->fetch('SELECT COUNT(*) total FROM stocks WHERE variant_id = ? AND is_sold = 0', [$variant['id']]);
-        if ((int) $available['total'] < $quantity) {
-            $this->telegram->editMessage($chatId, $messageId, $lang->get('quantity_unavailable', ['quantity' => $quantity]), [[
-                ['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId],
-            ]]);
-            return;
-        }
-
         $unitPrice = number_format((float) $variant['price'], 2, '.', '');
         $total = number_format((float) $unitPrice * $quantity, 2, '.', '');
         $requestToken = hash('sha256', implode(':', [(int) $user['id'], $messageId, $productId, $version]));
@@ -148,69 +137,79 @@ final class OrderHandler
         string $requestToken,
         Language $lang
     ): array {
-        return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $requestToken, $lang): array {
+        $prepared = $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $requestToken, $lang): array {
             $existing = $db->fetch('SELECT * FROM purchase_requests WHERE request_token = ? FOR UPDATE', [$requestToken]);
             if ($existing !== null) {
-                if ($existing['order_id'] !== null) return $this->walletOrderMessage($db, (int) $existing['order_id'], $lang);
-                return ['message' => $lang->get($existing['result_reason'] === 'out_of_stock' ? 'just_out_of_stock' : 'request_processing')];
+                if ($existing['order_id'] !== null) {
+                    $order = $db->fetch('SELECT * FROM orders WHERE id=? FOR UPDATE', [$existing['order_id']]);
+                    if ($order['status'] === 'completed') return ['response' => $this->walletOrderMessage($db, (int) $order['id'], $lang)];
+                    if (in_array($order['status'], ['failed', 'cancelled'], true)) {
+                        return ['response' => ['message' => $lang->get('just_out_of_stock')]];
+                    }
+                    if ($order['status'] === 'processing' && $order['payment_method'] === 'wallet') {
+                        $orderUser = $db->fetch('SELECT * FROM users WHERE id=?', [$order['user_id']]);
+                        return [
+                            'orderId' => (int) $order['id'],
+                            'orderCode' => (string) $order['order_code'],
+                            'total' => number_format((float) $order['amount'], 2, '.', ''),
+                            'user' => $orderUser,
+                        ];
+                    }
+                }
+                return ['response' => ['message' => $lang->get('request_processing')]];
             }
-            $db->execute(
-                "INSERT INTO purchase_requests (request_token,user_id,variant_id,quantity,unit_price,status) VALUES (?,?,?,?,?,'processing')",
-                [$requestToken, $userId, $variant['id'], $quantity, $unitPrice]
-            );
-            $user = $db->fetch('SELECT * FROM users WHERE id = ? FOR UPDATE', [$userId]);
-            $currentVariant = $db->fetch(
-                'SELECT v.price, v.status, p.status product_status FROM variants v JOIN products p ON p.id=v.product_id WHERE v.id=? FOR UPDATE',
-                [$variant['id']]
-            );
+            $db->execute("INSERT INTO purchase_requests(request_token,user_id,variant_id,quantity,unit_price,status) VALUES(?,?,?,?,?,'processing')", [$requestToken, $userId, $variant['id'], $quantity, $unitPrice]);
+            $user = $db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$userId]);
+            $currentVariant = $db->fetch('SELECT v.price,v.status,p.status product_status FROM variants v JOIN products p ON p.id=v.product_id WHERE v.id=? FOR UPDATE', [$variant['id']]);
             if ($currentVariant === null || !(int) $currentVariant['status'] || !(int) $currentVariant['product_status']) {
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='product_unavailable' WHERE request_token=?", [$requestToken]);
-                return ['message' => $lang->get('product_unavailable')];
+                return ['response' => ['message' => $lang->get('product_unavailable')]];
             }
             if (number_format((float) $currentVariant['price'], 2, '.', '') !== $unitPrice) {
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='price_changed' WHERE request_token=?", [$requestToken]);
-                return ['message' => $lang->get('price_changed')];
+                return ['response' => ['message' => $lang->get('price_changed')]];
             }
             $total = number_format((float) $unitPrice * $quantity, 2, '.', '');
             if ((float) $user['balance'] < (float) $total) {
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='balance_changed' WHERE request_token=?", [$requestToken]);
-                return ['message' => $lang->get('balance_changed')];
+                return ['response' => ['message' => $lang->get('balance_changed')]];
             }
-            $stocks = $db->fetchAll(
-                'SELECT id,content FROM stocks WHERE variant_id=? AND is_sold=0 ORDER BY id LIMIT ' . $quantity . ' FOR UPDATE',
-                [$variant['id']]
-            );
-            if (count($stocks) !== $quantity) {
+            $orderCode = Helpers::orderCode();
+            $db->execute("INSERT INTO orders(order_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,payment_method,status,paid_at) VALUES(?,?,?,?,?,?,?,?, 'wallet','processing',NOW())", [$orderCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $total]);
+            $orderId = $db->lastInsertId();
+            $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
+            $balanceAfter = number_format((float) $balanceBefore - (float) $total, 2, '.', '');
+            $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $userId]);
+            $db->execute("INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note) VALUES(?,'purchase',?,?,?,'order',?,?,?)", [$userId, -((float) $total), $balanceBefore, $balanceAfter, $orderId, $orderCode, $orderCode]);
+            $db->execute("UPDATE purchase_requests SET order_id=? WHERE request_token=?", [$orderId, $requestToken]);
+            return compact('orderId', 'orderCode', 'total', 'user');
+        });
+        if (isset($prepared['response'])) return $prepared['response'];
+
+        $delivery = $this->fulfillment->fulfill((int) $prepared['orderId'], (int) $variant['id'], $quantity, (string) $prepared['orderCode']);
+        if ($delivery['pending'] ?? false) return ['message' => $lang->get('supplier_fulfillment_pending')];
+
+        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $variant, $quantity, $requestToken, $lang): array {
+            $order = $db->fetch('SELECT * FROM orders WHERE id=? FOR UPDATE', [$prepared['orderId']]);
+            if ($order['status'] === 'completed') return $this->walletOrderMessage($db, (int) $order['id'], $lang);
+            if ($order['status'] !== 'processing') {
+                return ['message' => $lang->get($order['status'] === 'failed' ? 'just_out_of_stock' : 'request_processing')];
+            }
+            if (!$delivery['success']) {
+                $user = $db->fetch('SELECT balance FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
+                $before = number_format((float) $user['balance'], 2, '.', '');
+                $after = number_format((float) $before + (float) $prepared['total'], 2, '.', '');
+                $db->execute('UPDATE users SET balance=? WHERE id=?', [$after, $order['user_id']]);
+                $db->execute("INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note) VALUES(?,'refund',?,?,?,'order',?,?,?)", [$order['user_id'], $prepared['total'], $before, $after, $order['id'], $order['order_code'], 'fulfillment_failed']);
+                $db->execute("UPDATE orders SET status='failed',result_reason='out_of_stock',wallet_credited=?,completed_at=NOW() WHERE id=?", [$prepared['total'], $order['id']]);
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='out_of_stock' WHERE request_token=?", [$requestToken]);
                 return ['message' => $lang->get('just_out_of_stock')];
             }
-            $orderCode = Helpers::orderCode();
-            $db->execute(
-                "INSERT INTO orders (order_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,payment_method,status,paid_at)
-                 VALUES (?,?,?,?,?,?,?,?, 'wallet','processing',NOW())",
-                [$orderCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $total]
-            );
-            $orderId = $db->lastInsertId();
-            $contents = [];
-            foreach ($stocks as $stock) {
-                $db->execute('UPDATE stocks SET is_sold=1,order_id=?,sold_at=NOW() WHERE id=? AND is_sold=0', [$orderId, $stock['id']]);
-                $db->execute('INSERT INTO order_deliveries(order_id,stock_id,content) VALUES(?,?,?)', [$orderId, $stock['id'], $stock['content']]);
-                $contents[] = $stock['content'];
-            }
-            $legacyContent = implode("\n", $contents);
-            $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
-            $balanceAfter = number_format((float) $balanceBefore - (float) $total, 2, '.', '');
             $completedAt = date('Y-m-d H:i:s');
-            $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $userId]);
-            $db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',completed_at=? WHERE id=?", [$legacyContent, $completedAt, $orderId]);
-            $db->execute(
-                "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note)
-                 VALUES(?,'purchase',?,?,?,'order',?,?,?)",
-                [$userId, -((float) $total), $balanceBefore, $balanceAfter, $orderId, $orderCode, $orderCode]
-            );
-            $db->execute("UPDATE purchase_requests SET status='completed',order_id=?,result_reason='delivered' WHERE request_token=?", [$orderId, $requestToken]);
-            $this->enqueueWalletOrderAdmins($orderId, $user, $variant, $quantity, $total, $orderCode, $completedAt);
-            return $this->walletOrderMessage($db, $orderId, $lang);
+            $db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',completed_at=? WHERE id=?", [implode("\n", $delivery['items'] ?? []), $completedAt, $order['id']]);
+            $db->execute("UPDATE purchase_requests SET status='completed',result_reason='delivered' WHERE request_token=?", [$requestToken]);
+            $this->enqueueWalletOrderAdmins((int) $order['id'], $prepared['user'], $variant, $quantity, $prepared['total'], $prepared['orderCode'], $completedAt);
+            return $this->walletOrderMessage($db, (int) $order['id'], $lang);
         });
     }
 
