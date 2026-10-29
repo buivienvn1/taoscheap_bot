@@ -6,8 +6,12 @@ return [
     'enabled' => false,
     'processing' => false,
     'provider' => 'acb_third_party',
-    'url' => 'https://feed-provider.example/api/transactions',
+    // Never include the token in this URL. The client appends it only in memory.
+    'url' => 'https://feed-provider.example/api/v1/feed',
     'token' => 'REPLACE_WITH_ROTATED_TOKEN',
+    'auth_mode' => 'query',
+    'token_parameter' => 'token',
+    // Used only when auth_mode is "header".
     'token_header' => 'Authorization',
     'token_prefix' => 'Bearer ',
     'allowed_host' => 'feed-provider.example',

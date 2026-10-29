@@ -73,7 +73,7 @@ Hệ thống nhận hai loại thanh toán:
 ## Feed giao dịch bên thứ ba và cron
 
 1. Thu hồi token từng được chia sẻ và tạo token mới. Sao chép `config/payment_feed.example.php` thành `config/payment_feed.local.php` trên server; file local được Git/deploy giữ nguyên.
-2. Điền URL HTTPS, host allowlist và token mới. Giữ `enabled=false`, `processing=false` trong lần deploy/migration đầu.
+2. Điền URL HTTPS **không chứa query token**, host allowlist và token mới. Với feed xác thực bằng `?token=...`, giữ `auth_mode=query` và `token_parameter=token`; client chỉ ghép token trong bộ nhớ ngay trước request. Giữ `enabled=false`, `processing=false` trong lần deploy/migration đầu.
 3. Chạy migration 008, kiểm tra `payment_code_registry` không còn mã `ambiguous`/`review` chưa được đối soát.
 4. Bật `enabled=true` nhưng vẫn giữ `processing=false` để đối chiếu read-only. Feed `stale`/`incomplete` luôn bị chặn xử lý tiền.
 5. Chỉ sau khi xác nhận tài khoản, cửa sổ dữ liệu và mốc chuyển nguồn, đặt `activation_at` có timezone rồi mới đổi `processing=true`. Không để webhook cũ và feed xử lý ngoài service chung.

@@ -17,8 +17,21 @@ final class PaymentFeedClient
         }
         $token = (string) ($this->config['token'] ?? '');
         if ($token === '' || str_contains($token, 'REPLACE_')) throw new RuntimeException('feed_token_missing');
-        $headerName = (string) ($this->config['token_header'] ?? 'Authorization');
-        if (preg_match('/^[A-Za-z0-9-]+$/', $headerName) !== 1 || preg_match('/[\r\n]/', $token) === 1) throw new RuntimeException('feed_auth_rejected');
+        if (preg_match('/[\r\n]/', $token) === 1) throw new RuntimeException('feed_auth_rejected');
+
+        $authMode = (string) ($this->config['auth_mode'] ?? 'header');
+        $headers = ['Accept: application/json'];
+        if ($authMode === 'query') {
+            $parameter = (string) ($this->config['token_parameter'] ?? 'token');
+            if (preg_match('/^[A-Za-z0-9_-]+$/', $parameter) !== 1 || isset($parts['query'])) throw new RuntimeException('feed_auth_rejected');
+            $url .= '?' . rawurlencode($parameter) . '=' . rawurlencode($token);
+        } elseif ($authMode === 'header') {
+            $headerName = (string) ($this->config['token_header'] ?? 'Authorization');
+            if (preg_match('/^[A-Za-z0-9-]+$/', $headerName) !== 1) throw new RuntimeException('feed_auth_rejected');
+            $headers[] = $headerName . ': ' . (string) ($this->config['token_prefix'] ?? 'Bearer ') . $token;
+        } else {
+            throw new RuntimeException('feed_auth_rejected');
+        }
 
         $body = '';
         $limit = max(1024, (int) ($this->config['max_response_bytes'] ?? 1048576));
@@ -31,7 +44,7 @@ final class PaymentFeedClient
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_HTTPHEADER => [$headerName . ': ' . (string) ($this->config['token_prefix'] ?? 'Bearer ') . $token, 'Accept: application/json'],
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$body, $limit): int {
                 if (strlen($body) + strlen($chunk) > $limit) return 0;
                 $body .= $chunk;
