@@ -124,10 +124,10 @@ $form = $editing ?? [];
         <label for="product_name">Tên sản phẩm</label>
         <input id="product_name" name="name" value="<?= e($form['name'] ?? '') ?>" required>
         <label for="product_description">Mô tả</label>
-        <small class="help-text">Dùng <vi>Nội dung tiếng Việt</vi> và <en>English content</en>. Bên trong hỗ trợ các thẻ Telegram HTML như <b>, <i>, <u>, <s>, <code>, <pre>, <blockquote> và <a href="...">.</small>
+        <small class="help-text"><?= e('Dùng <vi>Nội dung tiếng Việt</vi> và <en>English content</en>. Bên trong hỗ trợ các thẻ Telegram HTML như <b>, <i>, <u>, <s>, <code>, <pre>, <blockquote> và <a href="...">.') ?></small>
         <textarea id="product_description" name="description" rows="10"><?= e($form['description'] ?? '') ?></textarea>
         <label for="product_features">Hướng dẫn sử dụng</label>
-        <small class="help-text">Có thể dùng cùng cú pháp <vi>...</vi>, <en>...</en> và Telegram HTML.</small>
+        <small class="help-text"><?= e('Có thể dùng cùng cú pháp <vi>...</vi>, <en>...</en> và Telegram HTML.') ?></small>
         <textarea id="product_features" name="features" rows="6"><?= e($form['features'] ?? '') ?></textarea>
         <div class="form-grid">
             <div>
