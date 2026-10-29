@@ -7,8 +7,10 @@ require dirname(__DIR__) . '/bootstrap.php';
 $lock = fopen(sys_get_temp_dir() . '/taos-notification-outbox.lock', 'c');
 if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) exit(0);
 try {
-    $sent = (new NotificationOutbox($db, $telegram))->retryBatch(20);
-    fwrite(STDOUT, json_encode(['sent' => $sent]) . PHP_EOL);
+    $outbox = new NotificationOutbox($db, $telegram);
+    $sent = $outbox->retryBatch(20);
+    $cleaned = $outbox->retryCleanupBatch(20);
+    fwrite(STDOUT, json_encode(['sent' => $sent, 'cleaned' => $cleaned]) . PHP_EOL);
 } catch (Throwable $error) {
     error_log('Notification outbox worker failed: ' . $error::class);
     exit(1);

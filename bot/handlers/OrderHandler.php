@@ -4,8 +4,15 @@ declare(strict_types=1);
 
 final class OrderHandler
 {
-    public function __construct(private Database $db, private Telegram $telegram, private VietQR $vietQr)
-    {
+    private NotificationOutbox $outbox;
+
+    public function __construct(
+        private Database $db,
+        private Telegram $telegram,
+        private VietQR $vietQr,
+        private array $app
+    ) {
+        $this->outbox = new NotificationOutbox($db, $telegram);
     }
 
     public function checkout(
@@ -86,11 +93,18 @@ final class OrderHandler
         } catch (Throwable $error) {
             error_log('Order QR delivery failed: ' . $error::class);
             $fallbackKeyboard = [[['text' => $lang->get('open_qr'), 'url' => $qrUrl]], ...$keyboard];
-            $this->telegram->editMessage($chatId, $messageId, $content . "\n\n<i>" . $lang->get('qr_unavailable') . '</i>', $fallbackKeyboard);
+            $fallbackResult = $this->telegram->editMessage($chatId, $messageId, $content . "\n\n<i>" . $lang->get('qr_unavailable') . '</i>', $fallbackKeyboard);
+            $fallbackMessageId = (int) ($fallbackResult['result']['message_id'] ?? $messageId);
+            if ($fallbackMessageId > 0) {
+                $this->recordPaymentMessage((int) $order['id'], (int) $user['id'], $chatId, $fallbackMessageId, 'text', $qrUrl);
+            }
             return;
         }
 
         $newMessageId = (int) ($photoResult['result']['message_id'] ?? 0);
+        if ($newMessageId > 0) {
+            $this->recordPaymentMessage((int) $order['id'], (int) $user['id'], $chatId, $newMessageId, 'photo', $qrUrl);
+        }
         if ($newMessageId > 0 && $newMessageId !== $messageId) {
             $this->db->execute(
                 'INSERT INTO checkout_selections (user_id,message_id,product_id,quantity,version)
@@ -138,7 +152,7 @@ final class OrderHandler
                 "INSERT INTO purchase_requests (request_token,user_id,variant_id,quantity,unit_price,status) VALUES (?,?,?,?,?,'processing')",
                 [$requestToken, $userId, $variant['id'], $quantity, $unitPrice]
             );
-            $user = $db->fetch('SELECT balance FROM users WHERE id = ? FOR UPDATE', [$userId]);
+            $user = $db->fetch('SELECT * FROM users WHERE id = ? FOR UPDATE', [$userId]);
             $currentVariant = $db->fetch(
                 'SELECT v.price, v.status, p.status product_status FROM variants v JOIN products p ON p.id=v.product_id WHERE v.id=? FOR UPDATE',
                 [$variant['id']]
@@ -178,10 +192,18 @@ final class OrderHandler
                 $contents[] = $stock['content'];
             }
             $legacyContent = implode("\n", $contents);
-            $db->execute('UPDATE users SET balance=balance-? WHERE id=?', [$total, $userId]);
-            $db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',completed_at=NOW() WHERE id=?", [$legacyContent, $orderId]);
-            $db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,note) VALUES(?,'purchase',?,'order',?,?)", [$userId, -((float) $total), $orderId, $orderCode]);
+            $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
+            $balanceAfter = number_format((float) $balanceBefore - (float) $total, 2, '.', '');
+            $completedAt = date('Y-m-d H:i:s');
+            $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $userId]);
+            $db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',completed_at=? WHERE id=?", [$legacyContent, $completedAt, $orderId]);
+            $db->execute(
+                "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note)
+                 VALUES(?,'purchase',?,?,?,'order',?,?,?)",
+                [$userId, -((float) $total), $balanceBefore, $balanceAfter, $orderId, $orderCode, $orderCode]
+            );
             $db->execute("UPDATE purchase_requests SET status='completed',order_id=?,result_reason='delivered' WHERE request_token=?", [$orderId, $requestToken]);
+            $this->enqueueWalletOrderAdmins($orderId, $user, $variant, $quantity, $total, $orderCode, $completedAt);
             return $this->walletOrderMessage($db, $orderId, $lang);
         });
     }
@@ -190,16 +212,43 @@ final class OrderHandler
     {
         $order = $db->fetch('SELECT * FROM orders WHERE id=?', [$orderId]);
         $deliveries = $db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);
-        $deliveryText = '';
+        $message = $lang->get('order_result_success', [
+            'product' => Helpers::escape((string) $order['product_name']),
+            'quantity' => (int) $order['quantity'],
+            'amount' => Helpers::money($order['amount']),
+            'order' => Helpers::escape((string) $order['order_code']),
+            'time' => Helpers::dateTime((string) $order['completed_at']),
+        ]);
         foreach ($deliveries as $index => $delivery) {
-            $deliveryText .= "\n<b>" . $lang->get('delivery_item', ['number' => $index + 1]) . ":</b>\n<code>" . Helpers::escape($delivery['content']) . '</code>';
+            $message .= "\n\n<b>" . $lang->get('delivery_item', ['number' => $index + 1]) . ":</b>\n<code>" . Helpers::escape($delivery['content']) . '</code>';
         }
-        return ['message' => '<blockquote><b>' . $lang->get('purchase_success') . "</b></blockquote>\n\n"
-            . $lang->get('order_code') . ': <code>' . Helpers::escape($order['order_code']) . "</code>\n"
-            . $lang->get('product') . ': ' . Helpers::escape($order['product_name']) . "\n"
-            . $lang->get('wallet_purchase_quantity', ['quantity' => (int) $order['quantity']]) . "\n"
-            . $lang->get('amount') . ': <b>' . Helpers::money($order['amount']) . "</b>\n"
-            . $deliveryText];
+        return ['message' => $message];
+    }
+
+    private function enqueueWalletOrderAdmins(
+        int $orderId,
+        array $user,
+        array $variant,
+        int $quantity,
+        string $total,
+        string $orderCode,
+        string $completedAt
+    ): void {
+        $customer = trim((string) $user['first_name'] . ' ' . (string) ($user['last_name'] ?? ''));
+        if (trim((string) ($user['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $user['username']);
+        $vi = new Language('vi');
+        foreach (Helpers::adminTelegramIds($this->app) as $adminId) {
+            $this->outbox->enqueueAdmin($adminId, 'order:' . $orderId . ':admin:' . $adminId, 'admin_order_success', [
+                'customer' => $customer !== '' ? $customer : '-',
+                'telegram_id' => (string) $user['telegram_id'],
+                'product' => (string) ($variant['product_name'] ?: '-'),
+                'quantity' => $quantity,
+                'amount' => Helpers::money($total),
+                'payment_method' => $vi->get('payment_method_wallet'),
+                'code' => $orderCode,
+                'time' => Helpers::dateTime($completedAt),
+            ]);
+        }
     }
 
     private function pendingDirectOrder(
@@ -240,6 +289,30 @@ final class OrderHandler
             $registry->bind($paymentCode, 'order', $orderId);
             $db->execute("UPDATE purchase_requests SET status='completed',order_id=?,result_reason='qr_created' WHERE request_token=?", [$orderId, $requestToken]);
             return $db->fetch('SELECT * FROM orders WHERE id=?', [$orderId]);
+        });
+    }
+
+    private function recordPaymentMessage(
+        int $orderId,
+        int $userId,
+        int $chatId,
+        int $messageId,
+        string $messageType,
+        string $qrUrl
+    ): void {
+        $this->db->transaction(function (Database $db) use ($orderId, $userId, $chatId, $messageId, $messageType, $qrUrl): void {
+            $order = $db->fetch('SELECT status FROM orders WHERE id=? AND user_id=? FOR UPDATE', [$orderId, $userId]);
+            if ($order === null || $order['status'] !== 'pending') return;
+            $db->execute(
+                "UPDATE payment_message_links SET is_active=0,cleanup_status='superseded' WHERE request_type='order' AND request_id=? AND is_active=1",
+                [$orderId]
+            );
+            $db->execute(
+                "INSERT INTO payment_message_links(request_type,request_id,user_id,chat_id,message_id,message_type,qr_url)
+                 VALUES('order',?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE request_type=VALUES(request_type),request_id=VALUES(request_id),user_id=VALUES(user_id),message_type=VALUES(message_type),qr_url=VALUES(qr_url),is_active=1,cleanup_status='pending',cleanup_attempts=0,last_error_code=NULL,cleaned_at=NULL",
+                [$orderId, $userId, $chatId, $messageId, $messageType, $qrUrl]
+            );
         });
     }
 }

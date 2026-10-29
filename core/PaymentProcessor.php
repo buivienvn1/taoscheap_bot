@@ -83,17 +83,71 @@ final class PaymentProcessor
         $deposit = $this->db->fetch("SELECT * FROM deposits WHERE id=? FOR UPDATE", [$depositId]);
         if ($deposit === null || $deposit['status'] !== 'pending') return $this->result('review', false, null, $depositId);
         if ((float) $amount < (float) $this->app['min_deposit']) return $this->result('deposit_below_minimum', false, null, $depositId);
-        $this->db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$deposit['user_id']]);
-        $this->db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$amount, $deposit['user_id']]);
-        $this->db->execute("UPDATE deposits SET amount=?,status='completed',completed_at=NOW() WHERE id=?", [$amount, $depositId]);
-        $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,note) VALUES(?,'deposit',?,'deposit',?,?)", [$deposit['user_id'], $amount, $depositId, 'deposit_completed']);
-        $outboxId = $this->outbox->enqueue((int) $deposit['user_id'], 'payment-code:' . $code, 'deposit_success', ['amount' => Helpers::money($amount)]);
+        $user = $this->db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$deposit['user_id']]);
+        if ($user === null) return $this->result('review', false, null, $depositId);
+
+        $referenceCode = trim((string) ($deposit['reference_code'] ?? ''));
+        if ($referenceCode === '') $referenceCode = 'NAP-' . str_pad((string) $depositId, 6, '0', STR_PAD_LEFT);
+        $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
+        $balanceAfter = number_format((float) $balanceBefore + (float) $amount, 2, '.', '');
+        $completedAt = date('Y-m-d H:i:s');
+        $displayTime = Helpers::dateTime($completedAt);
+
+        $this->db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $deposit['user_id']]);
+        $this->db->execute(
+            "UPDATE deposits SET reference_code=?,amount=?,balance_before=?,balance_after=?,status='completed',completed_at=? WHERE id=?",
+            [$referenceCode, $amount, $balanceBefore, $balanceAfter, $completedAt, $depositId]
+        );
+        $this->db->execute(
+            "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note)
+             VALUES(?,'deposit',?,?,?,'deposit',?,?,?)",
+            [$deposit['user_id'], $amount, $balanceBefore, $balanceAfter, $depositId, $referenceCode, 'deposit_completed']
+        );
+
+        $params = [
+            'amount' => Helpers::money($amount),
+            'balance' => Helpers::money($balanceAfter),
+            'code' => $referenceCode,
+            'time' => $displayTime,
+            'cleanup_request_type' => 'deposit',
+            'cleanup_request_id' => $depositId,
+        ];
+        $textLink = $this->db->fetch(
+            "SELECT * FROM payment_message_links WHERE request_type='deposit' AND request_id=? AND message_type='text' AND is_active=1 ORDER BY id DESC LIMIT 1",
+            [$depositId]
+        );
+        $outboxId = $this->outbox->enqueueRecipient(
+            (int) $deposit['user_id'],
+            'user',
+            (int) $user['telegram_id'],
+            (string) $user['language'],
+            'deposit:' . $depositId . ':user',
+            'deposit_success_detailed',
+            $params,
+            $textLink === null ? 'send' : 'edit_or_send',
+            $textLink === null ? null : (int) $textLink['chat_id'],
+            $textLink === null ? null : (int) $textLink['message_id']
+        );
+
+        $customer = trim((string) $user['first_name'] . ' ' . (string) ($user['last_name'] ?? ''));
+        if (trim((string) ($user['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $user['username']);
+        foreach (Helpers::adminTelegramIds($this->app) as $adminId) {
+            $this->outbox->enqueueAdmin($adminId, 'deposit:' . $depositId . ':admin:' . $adminId, 'admin_deposit_success', [
+                'customer' => $customer !== '' ? $customer : '-',
+                'telegram_id' => (string) $user['telegram_id'],
+                'amount' => Helpers::money($amount),
+                'balance' => Helpers::money($balanceAfter),
+                'payment_code' => $code,
+                'code' => $referenceCode,
+                'time' => $displayTime,
+            ]);
+        }
         return $this->result('deposit_completed', true, null, $depositId, '0.00', $amount, $outboxId);
     }
 
     private function processOrder(int $orderId, string $amount, string $code): array
     {
-        $order = $this->db->fetch("SELECT o.*,v.status variant_status,p.status product_status FROM orders o JOIN variants v ON v.id=o.variant_id JOIN products p ON p.id=v.product_id WHERE o.id=? FOR UPDATE", [$orderId]);
+        $order = $this->db->fetch("SELECT o.*,v.status variant_status,p.status product_status,u.telegram_id,u.username,u.first_name,u.last_name,u.language FROM orders o JOIN variants v ON v.id=o.variant_id JOIN products p ON p.id=v.product_id JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE", [$orderId]);
         if ($order === null || $order['status'] !== 'pending') return $this->result('review', false, $orderId);
         $this->db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
         $params = ['order' => Helpers::escape((string) $order['order_code']), 'amount' => Helpers::money($amount)];
@@ -109,12 +163,20 @@ final class PaymentProcessor
             $contents[] = $stock['content'];
         }
         $extra = number_format((float) $amount - (float) $order['amount'], 2, '.', '');
-        $this->db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',wallet_credited=?,paid_at=NOW(),completed_at=NOW() WHERE id=?", [implode("\n", $contents), max(0, (float) $extra), $orderId]);
-        $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,note) VALUES(?,'purchase',?,'order',?,?)", [$order['user_id'], -((float) $order['amount']), $orderId, $order['order_code']]);
+        $completedAt = date('Y-m-d H:i:s');
+        $this->db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',wallet_credited=?,paid_at=?,completed_at=? WHERE id=?", [implode("\n", $contents), max(0, (float) $extra), $completedAt, $completedAt, $orderId]);
+        $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,reference_code,note) VALUES(?,'purchase',?,'order',?,?,?)", [$order['user_id'], -((float) $order['amount']), $orderId, $order['order_code'], $order['order_code']]);
         if ((float) $extra > 0) $this->creditWallet($order, $extra, 'overpayment');
+        $params['product'] = (string) ($order['product_name'] ?: '-');
+        $params['quantity'] = (int) $order['quantity'];
+        $params['amount'] = Helpers::money($order['amount']);
+        $params['time'] = Helpers::dateTime($completedAt);
         $params['extra'] = (float) $extra > 0 ? Helpers::money($extra) : '';
         $params['deliveries'] = $contents;
-        $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'payment-code:' . $code, 'order_result_success', $params);
+        $params['cleanup_request_type'] = 'order';
+        $params['cleanup_request_id'] = $orderId;
+        $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'order:' . $orderId . ':user', 'order_result_success', $params);
+        $this->enqueueOrderAdmins($order, Helpers::dateTime($completedAt));
         return $this->result('order_delivered', true, $orderId, null, (string) $order['amount'], $extra, $outboxId);
     }
 
@@ -126,10 +188,28 @@ final class PaymentProcessor
         return $this->result($reason . '_wallet', true, (int) $order['id'], null, '0.00', $amount, $outboxId);
     }
 
+    private function enqueueOrderAdmins(array $order, string $displayTime): void
+    {
+        $customer = trim((string) $order['first_name'] . ' ' . (string) ($order['last_name'] ?? ''));
+        if (trim((string) ($order['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $order['username']);
+        foreach (Helpers::adminTelegramIds($this->app) as $adminId) {
+            $this->outbox->enqueueAdmin($adminId, 'order:' . $order['id'] . ':admin:' . $adminId, 'admin_order_success', [
+                'customer' => $customer !== '' ? $customer : '-',
+                'telegram_id' => (string) $order['telegram_id'],
+                'product' => (string) ($order['product_name'] ?: '-'),
+                'quantity' => (int) $order['quantity'],
+                'amount' => Helpers::money($order['amount']),
+                'payment_method' => (new Language('vi'))->get('payment_method_' . $order['payment_method']),
+                'code' => (string) $order['order_code'],
+                'time' => $displayTime,
+            ]);
+        }
+    }
+
     private function creditWallet(array $order, string $amount, string $reason): void
     {
         $this->db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$amount, $order['user_id']]);
-        $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,note) VALUES(?,'refund',?,'order',?,?)", [$order['user_id'], $amount, $order['id'], $reason]);
+        $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,reference_code,note) VALUES(?,'refund',?,'order',?,?,?)", [$order['user_id'], $amount, $order['id'], $order['order_code'], $reason]);
     }
 
     private function result(string $result, bool $final, ?int $orderId = null, ?int $depositId = null, string $purchase = '0.00', string $wallet = '0.00', ?int $outboxId = null): array

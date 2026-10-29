@@ -19,7 +19,7 @@ final class Router
         $this->deposit = new DepositHandler($db, $telegram, $vietQr, (int) $app['min_deposit']);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
-        $this->orders = new OrderHandler($db, $telegram, $vietQr);
+        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app);
         $this->languages = ['vi' => new Language('vi'), 'en' => new Language('en')];
     }
 
@@ -60,6 +60,7 @@ final class Router
 
         $user = $this->findUser($callback['from']);
         $data = (string) ($callback['data'] ?? 'start');
+        $this->deactivatePaymentMessage($chatId, $messageId);
         if (str_starts_with($data, 'lang:')) {
             $code = substr($data, 5);
             if (isset($this->languages[$code])) {
@@ -91,9 +92,24 @@ final class Router
         }
         elseif ($data === 'deposit') $this->deposit->show($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user, $lang);
-        elseif (str_starts_with($data, 'history')) {
+        elseif (str_starts_with($data, 'transactions:')) {
+            $this->profile->transactions($chatId, $messageId, (int) $user['id'], $lang, max(1, (int) substr($data, 13)));
+        }
+        elseif (str_starts_with($data, 'transaction:')) {
+            $parts = explode(':', $data, 3);
+            if (count($parts) === 3) {
+                $this->profile->transactionDetail($chatId, $messageId, (int) $user['id'], (int) $parts[1], max(1, (int) $parts[2]), $lang);
+            }
+        }
+        elseif (str_starts_with($data, 'orders:') || str_starts_with($data, 'history:')) {
             $parts = explode(':', $data, 2);
-            $this->profile->history($chatId, $messageId, (int) $user['id'], $lang, isset($parts[1]) ? max(1, (int) $parts[1]) : 1);
+            $this->profile->orders($chatId, $messageId, (int) $user['id'], $lang, isset($parts[1]) ? max(1, (int) $parts[1]) : 1);
+        }
+        elseif (str_starts_with($data, 'order_history:')) {
+            $parts = explode(':', $data, 3);
+            if (count($parts) === 3) {
+                $this->profile->orderDetail($chatId, $messageId, (int) $user['id'], (int) $parts[1], max(1, (int) $parts[2]), $lang);
+            }
         }
         elseif (str_starts_with($data, 'buy:')) $this->orders->legacyBuy($chatId, $messageId, (int) $user['id'], (int) substr($data, 4), $lang);
     }
@@ -111,6 +127,15 @@ final class Router
     private function language(string $code): Language
     {
         return $this->languages[$code] ?? $this->languages['vi'];
+    }
+
+    private function deactivatePaymentMessage(int $chatId, int $messageId): void
+    {
+        $this->db->execute(
+            "UPDATE payment_message_links SET is_active=0,cleanup_status='superseded'
+             WHERE chat_id=? AND message_id=? AND is_active=1 AND cleanup_status IN ('pending','failed')",
+            [$chatId, $messageId]
+        );
     }
 
     private function findUser(array $from): array

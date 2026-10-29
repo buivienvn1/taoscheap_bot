@@ -50,3 +50,26 @@ File `004_product_quantity_checkout.sql` thực hiện các thay đổi sau:
 - Không bật xử lý feed sau migration. Cấu hình mẫu mặc định `enabled=false`, `processing=false`; chỉ bật sau khi đổi token, xác nhận tài khoản, đối chiếu read-only và đặt `activation_at`.
 - Dừng ngắn checkout và webhook khi chạy migration, sao lưu database, rồi kiểm tra các dòng `ambiguous`/`review` trước rollout.
 - Worker feed chỉ đọc một trang khi chưa có hợp đồng cursor. Không dùng ID provider làm checkpoint hoặc khóa chống trùng.
+
+## Migration 009: thông báo, lịch sử và vòng đời QR
+
+File `009_notification_history.sql`:
+
+- Bổ sung mã đối soát nạp tiền `NAP-xxxxxx`, snapshot số dư trước/sau và index lịch sử. Mã đơn hàng tiếp tục dùng `OD...`; `DONATE...` chỉ dùng để ghép giao dịch ngân hàng.
+- Mở rộng notification outbox theo từng người nhận, ngôn ngữ, thao tác gửi/sửa và message ID đích. Mỗi admin có event key và retry độc lập.
+- Tạo `payment_message_links` để lưu đúng tin chữ/ảnh QR đã gửi, tránh sửa hoặc xóa màn hình mà người dùng đã điều hướng sang, đồng thời retry cleanup mà không gửi lại thông báo thành công.
+- Backfill mã NAP từ ID khoản nạp và backfill mã tham chiếu transaction từ deposit/order hiện có. Snapshot số dư lịch sử chỉ được điền khi nguồn đã có dữ liệu đáng tin cậy.
+
+### Trước khi chạy
+
+1. Sao lưu database và tạm dừng webhook, payment feed, checkout và cron notification.
+2. Xác nhận migration 008 đã hoàn tất; kiểm tra không có tác vụ outbox đang ở trạng thái `processing` chưa kết thúc.
+3. Ghi nhận tổng số dư, số deposit/order/transaction theo trạng thái và số outbox pending/failed.
+
+### Sau khi chạy
+
+1. Kiểm tra `reference_code` của deposit không trùng và có dạng `NAP-xxxxxx`; order code hiện có vẫn giữ nguyên.
+2. Cấu hình `admin_telegram_ids`; mỗi admin phải mở bot và bấm Start trước khi nhận thông báo.
+3. Chạy cron notification và xác nhận từng recipient retry độc lập; lỗi xóa QR không làm gửi lại thông báo thành công.
+4. Thử cả nạp tự động, duyệt tay, mua ví, mua QR, fallback không gửi được ảnh, lịch sử Telegram và bộ lọc Admin trước khi mở lại toàn bộ traffic.
+5. Đối chiếu lại tổng số dư và số giao dịch; không rollback bằng cách import database cũ sau khi hệ thống đã nhận giao dịch mới.

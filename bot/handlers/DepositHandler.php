@@ -51,7 +51,11 @@ final class DepositHandler
         $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
 
         try {
-            $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
+            $result = $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
+            $sentMessageId = (int) ($result['result']['message_id'] ?? 0);
+            if ($sentMessageId > 0) {
+                $this->recordPaymentMessage((int) $deposit['id'], $userId, $chatId, $sentMessageId, 'photo', $qrUrl);
+            }
         } catch (Throwable $error) {
             error_log('Deposit QR delivery failed: ' . $error::class);
             $fallbackKeyboard = [
@@ -59,7 +63,35 @@ final class DepositHandler
                 ...$keyboard,
             ];
             $text = $content . "\n\n<i>" . $lang->get('qr_unavailable') . '</i>';
-            $this->telegram->editMessage($chatId, $messageId, $text, $fallbackKeyboard);
+            $result = $this->telegram->editMessage($chatId, $messageId, $text, $fallbackKeyboard);
+            $sentMessageId = (int) ($result['result']['message_id'] ?? $messageId);
+            if ($sentMessageId > 0) {
+                $this->recordPaymentMessage((int) $deposit['id'], $userId, $chatId, $sentMessageId, 'text', $qrUrl);
+            }
         }
+    }
+
+    private function recordPaymentMessage(
+        int $depositId,
+        int $userId,
+        int $chatId,
+        int $messageId,
+        string $messageType,
+        string $qrUrl
+    ): void {
+        $this->db->transaction(function (Database $db) use ($depositId, $userId, $chatId, $messageId, $messageType, $qrUrl): void {
+            $deposit = $db->fetch('SELECT status FROM deposits WHERE id=? AND user_id=? FOR UPDATE', [$depositId, $userId]);
+            if ($deposit === null || $deposit['status'] !== 'pending') return;
+            $db->execute(
+                "UPDATE payment_message_links SET is_active=0,cleanup_status='superseded' WHERE request_type='deposit' AND request_id=? AND is_active=1",
+                [$depositId]
+            );
+            $db->execute(
+                "INSERT INTO payment_message_links(request_type,request_id,user_id,chat_id,message_id,message_type,qr_url)
+                 VALUES('deposit',?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE request_type=VALUES(request_type),request_id=VALUES(request_id),user_id=VALUES(user_id),message_type=VALUES(message_type),qr_url=VALUES(qr_url),is_active=1,cleanup_status='pending',cleanup_attempts=0,last_error_code=NULL,cleaned_at=NULL",
+                [$depositId, $userId, $chatId, $messageId, $messageType, $qrUrl]
+            );
+        });
     }
 }

@@ -230,7 +230,14 @@ CREATE TABLE stock_subscriptions (
 
 CREATE TABLE notification_outbox (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NULL,
+    recipient_type ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+    telegram_chat_id BIGINT NULL,
+    language VARCHAR(5) NOT NULL DEFAULT 'vi',
+    action_type ENUM('send', 'edit_or_send') NOT NULL DEFAULT 'send',
+    target_chat_id BIGINT NULL,
+    target_message_id BIGINT NULL,
+    sent_message_id BIGINT NULL,
     event_key VARCHAR(190) NOT NULL,
     message_key VARCHAR(100) NOT NULL,
     message_params LONGTEXT NOT NULL,
@@ -245,6 +252,7 @@ CREATE TABLE notification_outbox (
     UNIQUE KEY uq_notification_outbox_event (event_key),
     KEY idx_notification_outbox_pending (status, id),
     KEY idx_notification_outbox_user (user_id, created_at),
+    KEY idx_notification_outbox_recipient (recipient_type, telegram_chat_id, created_at),
     CONSTRAINT fk_notification_outbox_user
         FOREIGN KEY (user_id) REFERENCES users(id)
         ON UPDATE RESTRICT ON DELETE RESTRICT
@@ -254,13 +262,18 @@ CREATE TABLE deposits (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
     code VARCHAR(30) NOT NULL,
+    reference_code VARCHAR(30) NULL,
     amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+    balance_before DECIMAL(15,2) NULL,
+    balance_after DECIMAL(15,2) NULL,
     status ENUM('pending', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_deposits_code (code),
+    UNIQUE KEY uq_deposits_reference_code (reference_code),
     KEY idx_deposits_pending (user_id, status),
+    KEY idx_deposits_history (user_id, completed_at, id),
     CONSTRAINT fk_deposits_user
         FOREIGN KEY (user_id) REFERENCES users(id)
         ON UPDATE RESTRICT ON DELETE RESTRICT
@@ -271,16 +284,45 @@ CREATE TABLE transactions (
     user_id BIGINT UNSIGNED NOT NULL,
     type ENUM('deposit', 'purchase', 'refund', 'adjustment') NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
+    balance_before DECIMAL(15,2) NULL,
+    balance_after DECIMAL(15,2) NULL,
     reference_type VARCHAR(30) NULL,
     reference_id BIGINT UNSIGNED NULL,
+    reference_code VARCHAR(30) NULL,
     note VARCHAR(255) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_transactions_user (user_id, created_at),
     KEY idx_transactions_reference (reference_type, reference_id),
+    KEY idx_transactions_code (reference_code),
+    KEY idx_transactions_history (user_id, created_at, id),
     CONSTRAINT fk_transactions_user
         FOREIGN KEY (user_id) REFERENCES users(id)
         ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payment_message_links (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    request_type ENUM('deposit', 'order') NOT NULL,
+    request_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
+    chat_id BIGINT NOT NULL,
+    message_id BIGINT NOT NULL,
+    message_type ENUM('photo', 'text') NOT NULL,
+    qr_url TEXT NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    cleanup_status ENUM('pending', 'processing', 'cleaned', 'failed', 'superseded') NOT NULL DEFAULT 'pending',
+    cleanup_attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    last_error_code VARCHAR(100) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    cleaned_at DATETIME NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_payment_message (chat_id, message_id),
+    KEY idx_payment_message_request (request_type, request_id, is_active, id),
+    KEY idx_payment_message_cleanup (cleanup_status, id),
+    CONSTRAINT fk_payment_message_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE payment_events (
@@ -391,7 +433,8 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('004_product_quantity_checkout.sql', NULL),
     ('005_stock_subscriptions.sql', NULL),
     ('006_expand_users_telegram_metadata.sql', NULL),
-    ('008_third_party_acb_feed.sql', NULL);
+    ('008_third_party_acb_feed.sql', NULL),
+    ('009_notification_history.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),

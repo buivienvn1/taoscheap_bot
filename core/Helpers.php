@@ -42,4 +42,26 @@ final class Helpers
     {
         return strtoupper(preg_replace('/[^A-Z0-9]/i', '', $content) ?? '');
     }
+
+    public static function adminTelegramIds(array $app): array
+    {
+        $ids = [];
+        foreach (($app['admin_telegram_ids'] ?? []) as $value) {
+            $raw = trim((string) $value);
+            if (!preg_match('/^-?[1-9]\d*$/', $raw)) continue;
+            $id = (int) $raw;
+            if ($id !== 0) $ids[(string) $id] = $id;
+        }
+        return array_values($ids);
+    }
+
+    public static function dateTime(?string $value): string
+    {
+        if ($value === null || trim($value) === '') return '';
+        try {
+            return (new DateTimeImmutable($value))->format('d/m/Y H:i');
+        } catch (Throwable) {
+            return '';
+        }
+    }
 }

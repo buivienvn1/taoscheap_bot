@@ -20,6 +20,7 @@ Bot bán sản phẩm số dùng PHP 8.1+, MySQL, Telegram Webhook và Web Admin
    - `bot_token`: Telegram Bot Token.
    - `telegram_secret`: chuỗi bí mật dài, ngẫu nhiên.
    - `payment_secret`: secret dùng xác thực webhook thanh toán.
+   - `admin_telegram_ids`: danh sách một hoặc nhiều Telegram ID nhận thông báo nạp tiền/mua hàng, ví dụ `[123456789, 987654321]`. Mỗi admin phải mở bot và bấm Start ít nhất một lần trước khi bot có thể gửi tin.
    - `admin_password_hash`: password hash của quản trị viên.
 6. Sửa `config/bank.php` theo tài khoản nhận tiền.
 7. Mở `/admin/`, đăng nhập và bấm **Kích hoạt Webhook** trong Cài đặt.
@@ -70,6 +71,14 @@ Hệ thống nhận hai loại thanh toán:
 1. **Nạp ví**: Nội dung `Donate` + 6 ký tự chữ/số. Mỗi khách giữ một mã chờ đến khi dùng thành công. Số tiền tối thiểu 2.000đ.
 2. **Mua trực tiếp**: QR có đúng số tiền đơn. Nếu sản phẩm hết sau khi khách thanh toán, tiền tự động được cộng vào ví.
 
+Quy ước đối soát:
+
+- `DONATE...` chỉ là nội dung chuyển khoản để webhook/feed ghép giao dịch ngân hàng.
+- `NAP-xxxxxx` là mã đối soát của lần nạp tiền thành công.
+- `OD...` là mã đơn hàng và mã đối soát mua hàng hiện có.
+- Người dùng xem riêng lịch sử giao dịch và lịch sử đơn hàng trong Telegram, tối đa 5 mục mỗi trang. Quản trị viên tra cứu, lọc và xem chi tiết trên web Admin.
+- Thông báo Telegram cho admin chỉ chứa bản tóm tắt giao dịch; nội dung sản phẩm đã giao chỉ hiển thị cho đúng người mua và trong trang chi tiết Admin đã xác thực.
+
 ## Feed giao dịch bên thứ ba và cron
 
 1. Thu hồi token từng được chia sẻ và tạo token mới. Sao chép `config/payment_feed.example.php` thành `config/payment_feed.local.php` trên server; file local được Git/deploy giữ nguyên.
@@ -86,7 +95,7 @@ Cron cPanel mỗi phút (thay `CPANEL_USER` và binary PHP nếu hosting khác):
 * * * * * /usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/notification_outbox.php >/dev/null 2>&1
 ```
 
-Hai worker dùng file lock để tránh chạy chồng. Audit chỉ lưu hash ID provider, mã kết quả an toàn và metadata cần thiết; không lưu token/URL chứa token. Có thể rollback bằng cách đặt `enabled=false` hoặc `processing=false`; không xóa registry/audit hay phục hồi webhook bỏ qua registry.
+Hai worker dùng file lock để tránh chạy chồng. Worker notification retry độc lập từng người nhận và retry việc dọn tin/ảnh QR riêng, vì vậy lỗi gửi cho một admin hoặc lỗi xóa QR không làm lặp tác động số dư và không gửi lại thông báo thành công đã gửi. Audit chỉ lưu hash ID provider, mã kết quả an toàn và metadata cần thiết; không lưu token/URL chứa token. Có thể rollback bằng cách đặt `enabled=false` hoặc `processing=false`; không xóa registry/audit hay phục hồi webhook bỏ qua registry.
 
 ## Vận hành
 
@@ -102,6 +111,7 @@ Nguồn API đã có interface và lớp nền trong `suppliers/`. Mỗi nhà cu
 - Không import lại `install.sql` khi nâng cấp.
 - Sao lưu database trước mỗi lần cập nhật.
 - Chỉ chạy file migration mới trong `migrations/` theo thứ tự số.
+- Khi cập nhật tính năng thông báo/lịch sử, phải chạy `009_notification_history.sql` trước khi mở lại webhook, feed và cron notification.
 - Không sửa migration đã chạy và không dùng `DROP TABLE`.
 
 ## Bảo mật

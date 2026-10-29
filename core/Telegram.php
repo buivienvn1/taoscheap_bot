@@ -47,6 +47,31 @@ final class Telegram
         return $result;
     }
 
+    public function editMessageOrSend(int|string $chatId, int $messageId, string $text, array $keyboard = []): array
+    {
+        try {
+            return $this->request('editMessageText', array_merge(
+                $this->messagePayload($chatId, $text, $keyboard),
+                ['message_id' => $messageId]
+            ));
+        } catch (RuntimeException $error) {
+            $message = strtolower($error->getMessage());
+            if (str_contains($message, 'message is not modified')) {
+                return ['ok' => true, 'result' => ['message_id' => $messageId]];
+            }
+            $canFallback = str_contains($message, 'there is no text in the message to edit')
+                || str_contains($message, 'message to edit not found')
+                || str_contains($message, "message can't be edited");
+            if (!$canFallback) throw $error;
+        }
+        return $this->sendMessage($chatId, $text, $keyboard);
+    }
+
+    public function deleteMessage(int|string $chatId, int $messageId): array
+    {
+        return $this->request('deleteMessage', ['chat_id' => $chatId, 'message_id' => $messageId]);
+    }
+
     public function sendPhoto(int|string $chatId, string $photo, string $caption, array $keyboard = []): array
     {
         $payload = [

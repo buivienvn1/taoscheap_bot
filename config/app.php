@@ -10,6 +10,8 @@ return [
     'payment_provider' => 'sepay',
     'payment_secret' => 'CHANGE_PAYMENT_WEBHOOK_SECRET',
     'min_deposit' => 2000,
+    // Telegram IDs nhận thông báo giao dịch. Mỗi admin cần mở bot ít nhất một lần.
+    'admin_telegram_ids' => [],
     'admin_username' => 'admin',
     'admin_password_hash' => '',
 ];
