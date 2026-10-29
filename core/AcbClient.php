@@ -154,7 +154,6 @@ final class AcbClient
             'User-Agent: ACB-MBA/8 CFNetwork/1335.0.3 Darwin/21.6.0',
             'x-app-version: 3.26.0',
             'x-conversation-id: f43472f1-6d88-4228-91b9-4618a079342a',
-            'x-request-id: ' . $this->uuid(),
         ];
         $token = $bearerToken ?? ($useAccessToken ? $this->accessToken : null);
         if ($token !== null && $token !== '') {

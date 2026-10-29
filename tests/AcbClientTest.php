@@ -87,6 +87,13 @@ try {
     $loginPayload = json_decode((string) $transport->requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
     expect($loginPayload['username'] === 'test-user', 'Login username mismatch');
     expect($loginPayload['deviceId'] !== '', 'Device ID must be generated');
+    expect(count($transport->requests[0]['headers']) === 6, 'Login headers must match the Python client');
+    expect(containsHeader($transport->requests[0]['headers'], 'Accept: application/json, text/plain, */*'), 'Accept header mismatch');
+    expect(containsHeader($transport->requests[0]['headers'], 'Content-Type: application/json'), 'Content-Type header mismatch');
+    expect(containsHeader($transport->requests[0]['headers'], 'apikey: CQk6S5usauGmMgMYLGqCuDtgtqIM8FI1'), 'API key header mismatch');
+    expect(containsHeader($transport->requests[0]['headers'], 'User-Agent: ACB-MBA/8 CFNetwork/1335.0.3 Darwin/21.6.0'), 'User-Agent header mismatch');
+    expect(containsHeader($transport->requests[0]['headers'], 'x-app-version: 3.26.0'), 'App version header mismatch');
+    expect(containsHeader($transport->requests[0]['headers'], 'x-conversation-id: f43472f1-6d88-4228-91b9-4618a079342a'), 'Conversation header mismatch');
     expect(containsHeader($transport->requests[1]['headers'], 'Authorization: Bearer access-1'), 'Access token header missing');
     expect(str_contains($transport->requests[1]['url'], 'page=2'), 'History page was not forwarded');
     expect(str_contains($transport->requests[1]['url'], 'size=50'), 'History page size was not forwarded');
