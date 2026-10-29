@@ -135,8 +135,12 @@ final class ProfileHandler
             . $lang->get('product') . ': ' . Helpers::escape($order['product_name'] ?: '-') . "\n"
             . $lang->get('quantity') . ': <b>' . (int) $order['quantity'] . "</b>\n"
             . $lang->get('unit_price') . ': ' . Helpers::money($order['unit_price']) . "\n"
-            . $lang->get('total') . ': <b>' . Helpers::money($order['amount']) . "</b>\n"
+            . $lang->get('total') . ': <b>' . Helpers::money((float) $order['amount'] + (float) $order['wallet_amount']) . "</b>\n"
             . $lang->get('payment_method') . ': ' . $lang->get('payment_method_' . $order['payment_method']);
+        if ($order['payment_method'] === 'hybrid') {
+            $text .= "\n" . $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($order['wallet_amount'])]);
+            $text .= "\n" . $lang->get('payment_need_transfer_line', ['amount' => Helpers::money($order['amount'])]);
+        }
         if ((float) $order['wallet_credited'] > 0) $text .= "\n" . $lang->get('wallet_credit') . ': ' . Helpers::money($order['wallet_credited']);
         if ($order['status'] === 'completed') {
             $deliveries = $this->db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);

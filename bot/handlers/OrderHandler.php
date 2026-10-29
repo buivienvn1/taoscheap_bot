@@ -74,20 +74,26 @@ final class OrderHandler
 
         $order = $this->pendingDirectOrder((int) $user['id'], $variant, $quantity, $unitPrice, $total, $requestToken);
         $paymentCode = (string) $order['payment_code'];
+        $bankAmount = (string) $order['amount'];
+        $walletAmount = (string) $order['wallet_amount'];
         $bank = $this->vietQr->transferDetails();
-        $qrUrl = $this->vietQr->imageUrl($paymentCode, (float) $total);
+        $qrUrl = $this->vietQr->imageUrl($paymentCode, (float) $bankAmount);
         $content = '<blockquote><b>' . $lang->get('payment_title') . "</b></blockquote>\n\n"
             . $lang->get('payment_product_line', ['product' => Helpers::escape($variant['product_name'])]) . "\n"
             . $lang->get('payment_quantity_line', ['quantity' => $quantity]) . "\n"
             . $lang->get('payment_unit_price_line', ['amount' => Helpers::money($unitPrice)]) . "\n"
             . $lang->get('payment_total_line', ['amount' => Helpers::money($total)]) . "\n"
+            . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($walletAmount)]) . "\n" : '')
+            . $lang->get('payment_need_transfer_line', ['amount' => Helpers::money($bankAmount)]) . "\n"
             . $lang->get('payment_bank_line', [
                 'bank' => Helpers::escape($bank['bank_id']),
                 'account' => Helpers::escape($bank['account_number']),
             ]) . "\n"
             . $lang->get('payment_content_line', ['content' => Helpers::escape($paymentCode)]) . "\n\n"
             . $lang->get('payment_instruction');
-        $keyboard = [[['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId]]];
+        $keyboard = (float) $walletAmount > 0
+            ? [[['text' => $lang->get('cancel_order_button'), 'callback_data' => 'cancel_order:' . $order['id']]]]
+            : [[['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId]]];
         try {
             $photoResult = $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
         } catch (Throwable $error) {
@@ -260,36 +266,78 @@ final class OrderHandler
         string $requestToken
     ): array {
         return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $total, $requestToken): array {
-            $db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$userId]);
+            $user = $db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$userId]);
             $request = $db->fetch('SELECT * FROM purchase_requests WHERE request_token=? FOR UPDATE', [$requestToken]);
             if ($request !== null && $request['order_id'] !== null) {
                 return $db->fetch('SELECT * FROM orders WHERE id=?', [$request['order_id']]);
             }
-            $order = $db->fetch(
-                "SELECT * FROM orders WHERE user_id=? AND variant_id=? AND quantity=? AND unit_price=?
-                 AND payment_method='vietqr_direct' AND status='pending' ORDER BY id DESC LIMIT 1 FOR UPDATE",
-                [$userId, $variant['id'], $quantity, $unitPrice]
-            );
-            if ($order !== null) return $order;
             if ($request === null) {
                 $db->execute(
                     "INSERT INTO purchase_requests(request_token,user_id,variant_id,quantity,unit_price,status) VALUES(?,?,?,?,?,'processing')",
                     [$requestToken, $userId, $variant['id'], $quantity, $unitPrice]
                 );
             }
+
+            $balanceBefore = number_format((float) ($user['balance'] ?? 0), 2, '.', '');
+            $walletAmount = number_format(min((float) $balanceBefore, (float) $total), 2, '.', '');
+            if ((float) $walletAmount >= (float) $total) {
+                throw new RuntimeException('Wallet balance changed during checkout');
+            }
+            $bankAmount = number_format((float) $total - (float) $walletAmount, 2, '.', '');
+            $paymentMethod = (float) $walletAmount > 0 ? 'hybrid' : 'vietqr_direct';
             $registry = new PaymentCodeRegistry($db);
             $paymentCode = $registry->reserve('order');
             $orderCode = Helpers::orderCode();
+            $expiresAt = date('Y-m-d H:i:s', time() + 900);
             $db->execute(
-                "INSERT INTO orders(order_code,payment_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,payment_method,status)
-                 VALUES(?,?,?,?,?,?,?,?,?,'vietqr_direct','pending')",
-                [$orderCode, $paymentCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $total]
+                "INSERT INTO orders(order_code,payment_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,wallet_amount,payment_method,status,expires_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
+                [$orderCode, $paymentCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $bankAmount, $walletAmount, $paymentMethod, $expiresAt]
             );
             $orderId = $db->lastInsertId();
+            if ((float) $walletAmount > 0) {
+                $balanceAfter = number_format((float) $balanceBefore - (float) $walletAmount, 2, '.', '');
+                $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $userId]);
+                $db->execute(
+                    "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note)
+                     VALUES(?,'purchase',?,?,?,'order',?,?,?)",
+                    [$userId, -((float) $walletAmount), $balanceBefore, $balanceAfter, $orderId, $orderCode, 'hybrid_wallet_reserved']
+                );
+            }
             $registry->bind($paymentCode, 'order', $orderId);
             $db->execute("UPDATE purchase_requests SET status='completed',order_id=?,result_reason='qr_created' WHERE request_token=?", [$orderId, $requestToken]);
             return $db->fetch('SELECT * FROM orders WHERE id=?', [$orderId]);
         });
+    }
+
+    public function cancelOrder(int $chatId, int $messageId, int $userId, int $orderId, Language $lang): void
+    {
+        $result = $this->db->transaction(function (Database $db) use ($userId, $orderId): array {
+            $order = $db->fetch('SELECT * FROM orders WHERE id=? AND user_id=? FOR UPDATE', [$orderId, $userId]);
+            if ($order === null) return ['key' => 'order_cancel_not_found', 'amount' => '0.00'];
+            if ($order['status'] !== 'pending' || $order['payment_method'] !== 'hybrid') {
+                return ['key' => 'order_cancel_closed', 'amount' => '0.00'];
+            }
+
+            $walletAmount = number_format((float) $order['wallet_amount'], 2, '.', '');
+            $user = $db->fetch('SELECT balance FROM users WHERE id=? FOR UPDATE', [$userId]);
+            $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
+            $balanceAfter = number_format((float) $balanceBefore + (float) $walletAmount, 2, '.', '');
+            if ((float) $walletAmount > 0) {
+                $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $userId]);
+                $db->execute(
+                    "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note)
+                     VALUES(?,'refund',?,?,?,'order',?,?,?)",
+                    [$userId, $walletAmount, $balanceBefore, $balanceAfter, $orderId, $order['order_code'], 'hybrid_cancelled']
+                );
+            }
+            $db->execute("UPDATE orders SET status='cancelled',result_reason='user_cancelled',wallet_credited=?,completed_at=NOW() WHERE id=?", [$walletAmount, $orderId]);
+            return ['key' => 'order_cancelled_wallet_refunded', 'amount' => $walletAmount];
+        });
+
+        $this->telegram->editMessage($chatId, $messageId, $lang->get($result['key'], [
+            'amount' => Helpers::money($result['amount']),
+        ]), [[['text' => $lang->get('products_button'), 'callback_data' => 'products']]]);
     }
 
     private function recordPaymentMessage(

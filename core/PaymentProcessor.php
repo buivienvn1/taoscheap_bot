@@ -43,6 +43,55 @@ final class PaymentProcessor
         });
     }
 
+    public function expireHybridOrders(int $limit = 100): int
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT id FROM orders WHERE payment_method='hybrid' AND status='pending' AND expires_at<=NOW() ORDER BY id LIMIT " . max(1, $limit)
+        );
+        $expired = 0;
+        foreach ($rows as $row) {
+            $didExpire = $this->db->transaction(function (Database $db) use ($row): bool {
+                $order = $db->fetch(
+                    "SELECT o.*,u.telegram_id,u.language FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE",
+                    [(int) $row['id']]
+                );
+                if ($order === null || $order['status'] !== 'pending' || $order['payment_method'] !== 'hybrid'
+                    || $order['expires_at'] === null || strtotime((string) $order['expires_at']) > time()) {
+                    return false;
+                }
+
+                $user = $db->fetch('SELECT balance FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
+                $walletAmount = number_format((float) $order['wallet_amount'], 2, '.', '');
+                $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
+                $balanceAfter = number_format((float) $balanceBefore + (float) $walletAmount, 2, '.', '');
+                $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $order['user_id']]);
+                $db->execute(
+                    "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note)
+                     VALUES(?,'refund',?,?,?,'order',?,?,?)",
+                    [$order['user_id'], $walletAmount, $balanceBefore, $balanceAfter, $order['id'], $order['order_code'], 'hybrid_expired']
+                );
+                $db->execute("UPDATE orders SET status='cancelled',result_reason='expired',wallet_credited=?,completed_at=NOW() WHERE id=?", [$walletAmount, $order['id']]);
+                $this->outbox->enqueueRecipient(
+                    (int) $order['user_id'],
+                    'user',
+                    (int) $order['telegram_id'],
+                    (string) $order['language'],
+                    'order:' . $order['id'] . ':expired',
+                    'order_expired_wallet_refunded',
+                    [
+                        'amount' => Helpers::money($walletAmount),
+                        'order' => (string) $order['order_code'],
+                        'cleanup_request_type' => 'order',
+                        'cleanup_request_id' => (int) $order['id'],
+                    ]
+                );
+                return true;
+            });
+            if ($didExpire) $expired++;
+        }
+        return $expired;
+    }
+
     public static function normalizeAmount(mixed $value): ?string
     {
         if (is_float($value)) {
@@ -147,9 +196,14 @@ final class PaymentProcessor
     private function processOrder(int $orderId, string $amount, string $code): array
     {
         $order = $this->db->fetch("SELECT o.*,v.status variant_status,p.status product_status,u.telegram_id,u.username,u.first_name,u.last_name,u.language FROM orders o JOIN variants v ON v.id=o.variant_id JOIN products p ON p.id=v.product_id JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE", [$orderId]);
-        if ($order === null || $order['status'] !== 'pending') return $this->result('review', false, $orderId);
+        if ($order === null) return $this->result('review', false, $orderId);
         $this->db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
         $params = ['order' => Helpers::escape((string) $order['order_code']), 'amount' => Helpers::money($amount)];
+        if ($order['status'] !== 'pending') {
+            $this->creditWallet($order, $amount, 'closed_order_payment');
+            $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'payment-code:' . $code, 'order_result_closed', $params);
+            return $this->result('closed_order_wallet', true, $orderId, null, '0.00', $amount, $outboxId);
+        }
         if ((float) $amount < (float) $order['amount']) return $this->refundOrder($order, $amount, $code, 'short_payment', 'order_result_short_payment', $params);
         if (!(int) $order['variant_status'] || !(int) $order['product_status']) return $this->refundOrder($order, $amount, $code, 'product_unavailable', 'order_result_unavailable', $params);
         $quantity = max(1, (int) $order['quantity']);
@@ -162,29 +216,33 @@ final class PaymentProcessor
             $contents[] = $stock['content'];
         }
         $extra = number_format((float) $amount - (float) $order['amount'], 2, '.', '');
+        $total = number_format((float) $order['amount'] + (float) $order['wallet_amount'], 2, '.', '');
         $completedAt = date('Y-m-d H:i:s');
         $this->db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',wallet_credited=?,paid_at=?,completed_at=? WHERE id=?", [implode("\n", $contents), max(0, (float) $extra), $completedAt, $completedAt, $orderId]);
         $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,reference_code,note) VALUES(?,'purchase',?,'order',?,?,?)", [$order['user_id'], -((float) $order['amount']), $orderId, $order['order_code'], $order['order_code']]);
         if ((float) $extra > 0) $this->creditWallet($order, $extra, 'overpayment');
         $params['product'] = (string) ($order['product_name'] ?: '-');
         $params['quantity'] = (int) $order['quantity'];
-        $params['amount'] = Helpers::money($order['amount']);
+        $params['amount'] = Helpers::money($total);
         $params['time'] = Helpers::dateTime($completedAt);
         $params['extra'] = (float) $extra > 0 ? Helpers::money($extra) : '';
         $params['deliveries'] = $contents;
         $params['cleanup_request_type'] = 'order';
         $params['cleanup_request_id'] = $orderId;
         $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'order:' . $orderId . ':user', 'order_result_success', $params);
+        $order['total_amount'] = $total;
         $this->enqueueOrderAdmins($order, Helpers::dateTime($completedAt));
-        return $this->result('order_delivered', true, $orderId, null, (string) $order['amount'], $extra, $outboxId);
+        return $this->result('order_delivered', true, $orderId, null, $total, $extra, $outboxId);
     }
 
     private function refundOrder(array $order, string $amount, string $code, string $reason, string $messageKey, array $params): array
     {
-        $this->creditWallet($order, $amount, $reason);
-        $this->db->execute("UPDATE orders SET status='failed',result_reason=?,wallet_credited=?,paid_at=NOW(),completed_at=NOW() WHERE id=?", [$reason, $amount, $order['id']]);
+        $refund = number_format((float) $amount + (float) $order['wallet_amount'], 2, '.', '');
+        $this->creditWallet($order, $refund, $reason);
+        $this->db->execute("UPDATE orders SET status='failed',result_reason=?,wallet_credited=?,paid_at=NOW(),completed_at=NOW() WHERE id=?", [$reason, $refund, $order['id']]);
+        $params['amount'] = Helpers::money($refund);
         $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'payment-code:' . $code, $messageKey, $params);
-        return $this->result($reason . '_wallet', true, (int) $order['id'], null, '0.00', $amount, $outboxId);
+        return $this->result($reason . '_wallet', true, (int) $order['id'], null, '0.00', $refund, $outboxId);
     }
 
     private function enqueueOrderAdmins(array $order, string $displayTime): void
@@ -197,7 +255,7 @@ final class PaymentProcessor
                 'telegram_id' => (string) $order['telegram_id'],
                 'product' => (string) ($order['product_name'] ?: '-'),
                 'quantity' => (int) $order['quantity'],
-                'amount' => Helpers::money($order['amount']),
+                'amount' => Helpers::money($order['total_amount'] ?? ((float) $order['amount'] + (float) $order['wallet_amount'])),
                 'payment_method' => (new Language('vi'))->get('payment_method_' . $order['payment_method']),
                 'code' => (string) $order['order_code'],
                 'time' => $displayTime,

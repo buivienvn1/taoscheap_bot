@@ -90,6 +90,9 @@ final class Router
                 $this->orders->checkout($chatId, $messageId, $user, (int) $parts[1], (int) $parts[2], $lang);
             }
         }
+        elseif (str_starts_with($data, 'cancel_order:')) {
+            $this->orders->cancelOrder($chatId, $messageId, (int) $user['id'], (int) substr($data, 13), $lang);
+        }
         elseif ($data === 'deposit') $this->deposit->show($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user, $lang);
         elseif (str_starts_with($data, 'transactions:')) {

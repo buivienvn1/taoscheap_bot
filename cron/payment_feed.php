@@ -22,8 +22,9 @@ try {
 
     do {
         try {
+            $result = ['hybrid_orders_expired' => $processor->expireHybridOrders(100)];
             $feed = $adapter->adapt($client->fetchPage(), $provider);
-            $result = $service->run($feed);
+            $result += $service->run($feed);
             $result['notifications_sent'] = $outbox->retryBatch(100);
             fwrite(STDOUT, json_encode($result) . PHP_EOL);
         } catch (Throwable $error) {
