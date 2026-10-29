@@ -82,7 +82,6 @@ final class PaymentProcessor
     {
         $deposit = $this->db->fetch("SELECT * FROM deposits WHERE id=? FOR UPDATE", [$depositId]);
         if ($deposit === null || $deposit['status'] !== 'pending') return $this->result('review', false, null, $depositId);
-        if ((float) $amount < (float) $this->app['min_deposit']) return $this->result('deposit_below_minimum', false, null, $depositId);
         $user = $this->db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$deposit['user_id']]);
         if ($user === null) return $this->result('review', false, null, $depositId);
 

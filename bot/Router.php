@@ -16,7 +16,7 @@ final class Router
     {
         $this->start = new StartHandler($db, $telegram);
         $this->products = new ProductHandler($db, $telegram);
-        $this->deposit = new DepositHandler($db, $telegram, $vietQr, (int) $app['min_deposit']);
+        $this->deposit = new DepositHandler($db, $telegram, $vietQr);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
         $this->orders = new OrderHandler($db, $telegram, $vietQr, $app);

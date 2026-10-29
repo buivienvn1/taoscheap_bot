@@ -130,6 +130,5 @@ INSERT INTO settings (key_name, key_value) VALUES
     ('owner_username', ''),
     ('channel_username', ''),
     ('website', ''),
-    ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
-    ('min_deposit', '2000')
+    ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.')
 ON DUPLICATE KEY UPDATE key_name = VALUES(key_name);

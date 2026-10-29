@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 final class DepositHandler
 {
-    public function __construct(private Database $db, private Telegram $telegram, private VietQR $vietQr, private int $minDeposit)
+    public function __construct(private Database $db, private Telegram $telegram, private VietQR $vietQr)
     {
     }
 
@@ -43,9 +43,6 @@ final class DepositHandler
             ]) . "\n"
             . $lang->get('payment_content_line', [
                 'content' => Helpers::escape((string) $deposit['code']),
-            ]) . "\n"
-            . $lang->get('payment_minimum_line', [
-                'amount' => Helpers::money($this->minDeposit),
             ]) . "\n\n"
             . $lang->get('payment_instruction');
         $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];

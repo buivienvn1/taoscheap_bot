@@ -6,7 +6,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
     $id = (int) ($_POST['id'] ?? 0);
     $amount = PaymentProcessor::normalizeAmount($_POST['amount'] ?? null);
-    if ($id > 0 && $amount !== null && (float) $amount >= (float) $app['min_deposit']) {
+    if ($id > 0 && $amount !== null) {
         $db->transaction(function (Database $db) use ($id, $amount, $app, $telegram): void {
             $deposit = $db->fetch("SELECT * FROM deposits WHERE id=? FOR UPDATE", [$id]);
             if ($deposit === null || $deposit['status'] !== 'pending') return;

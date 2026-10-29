@@ -444,5 +444,4 @@ INSERT INTO settings (key_name, key_value) VALUES
     ('channel_username', ''),
     ('website', ''),
     ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
-    ('support_text_en', 'Contact the administrator for support.'),
-    ('min_deposit', '2000');
+    ('support_text_en', 'Contact the administrator for support.');
