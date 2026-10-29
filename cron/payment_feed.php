@@ -31,8 +31,8 @@ try {
         }
 
         $remainingSeconds = 50 - (time() - $startedAt);
-        if ($remainingSeconds < 20) break;
-        sleep(20);
+        if ($remainingSeconds < 10) break;
+        sleep(10);
     } while (true);
 } finally {
     flock($lock, LOCK_UN);
