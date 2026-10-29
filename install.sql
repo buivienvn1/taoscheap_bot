@@ -6,6 +6,9 @@ SET time_zone = '+07:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS schema_migrations;
+DROP TABLE IF EXISTS payment_feed_observations;
+DROP TABLE IF EXISTS payment_feed_runs;
+DROP TABLE IF EXISTS payment_code_registry;
 DROP TABLE IF EXISTS stock_subscriptions;
 DROP TABLE IF EXISTS notification_outbox;
 DROP TABLE IF EXISTS checkout_selections;
@@ -231,8 +234,11 @@ CREATE TABLE notification_outbox (
     event_key VARCHAR(190) NOT NULL,
     message_key VARCHAR(100) NOT NULL,
     message_params LONGTEXT NOT NULL,
-    status ENUM('pending', 'sent', 'failed') NOT NULL DEFAULT 'pending',
+    status ENUM('pending', 'processing', 'sent', 'failed') NOT NULL DEFAULT 'pending',
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    locked_at DATETIME NULL,
+    next_attempt_at DATETIME NULL,
+    last_error_code VARCHAR(100) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at DATETIME NULL,
     PRIMARY KEY (id),
@@ -302,6 +308,65 @@ CREATE TABLE payment_events (
         ON UPDATE RESTRICT ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE payment_code_registry (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    code VARCHAR(30) NOT NULL,
+    request_type ENUM('deposit','order','ambiguous') NOT NULL,
+    request_id BIGINT UNSIGNED NULL,
+    status ENUM('reserved','processed','review') NOT NULL DEFAULT 'reserved',
+    processed_amount DECIMAL(15,2) NULL,
+    result_type VARCHAR(50) NULL,
+    processed_event_id BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at DATETIME NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_payment_code_registry_code (code),
+    KEY idx_payment_code_registry_request (request_type, request_id),
+    KEY idx_payment_code_registry_status (status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payment_feed_runs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    provider VARCHAR(30) NOT NULL,
+    mode ENUM('read_only','processing') NOT NULL DEFAULT 'read_only',
+    status ENUM('running','ok','unsafe','failed') NOT NULL DEFAULT 'running',
+    transaction_count INT UNSIGNED NOT NULL DEFAULT 0,
+    matched_count INT UNSIGNED NOT NULL DEFAULT 0,
+    processed_count INT UNSIGNED NOT NULL DEFAULT 0,
+    review_count INT UNSIGNED NOT NULL DEFAULT 0,
+    stale TINYINT(1) NOT NULL DEFAULT 0,
+    incomplete TINYINT(1) NOT NULL DEFAULT 0,
+    source_last_sync_at VARCHAR(50) NULL,
+    source_last_sync_ok_at VARCHAR(50) NULL,
+    safe_error_code VARCHAR(50) NULL,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME NULL,
+    PRIMARY KEY (id),
+    KEY idx_payment_feed_runs_provider (provider, started_at),
+    KEY idx_payment_feed_runs_status (status, started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE payment_feed_observations (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    run_id BIGINT UNSIGNED NOT NULL,
+    provider VARCHAR(30) NOT NULL,
+    fingerprint CHAR(64) NOT NULL,
+    provider_transaction_id_hash CHAR(64) NULL,
+    provider_transaction_number_hash CHAR(64) NULL,
+    payment_code VARCHAR(30) NULL,
+    amount DECIMAL(15,2) NULL,
+    direction VARCHAR(20) NULL,
+    transaction_at VARCHAR(50) NULL,
+    result_type VARCHAR(50) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_payment_feed_observation (provider, fingerprint),
+    KEY idx_payment_feed_observations_run (run_id),
+    KEY idx_payment_feed_observations_code (payment_code, created_at),
+    CONSTRAINT fk_payment_feed_observations_run FOREIGN KEY (run_id) REFERENCES payment_feed_runs(id) ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE settings (
     key_name VARCHAR(100) NOT NULL,
     key_value TEXT NULL,
@@ -325,7 +390,8 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('003_add_multilingual_settings.sql', NULL),
     ('004_product_quantity_checkout.sql', NULL),
     ('005_stock_subscriptions.sql', NULL),
-    ('006_expand_users_telegram_metadata.sql', NULL);
+    ('006_expand_users_telegram_metadata.sql', NULL),
+    ('008_third_party_acb_feed.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),

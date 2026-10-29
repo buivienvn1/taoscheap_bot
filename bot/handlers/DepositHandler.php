@@ -20,19 +20,17 @@ final class DepositHandler
                 return $pending;
             }
 
-            do {
-                $code = Helpers::randomCode('DONATE');
-                $existsInDeposits = $db->fetch('SELECT id FROM deposits WHERE code = ?', [$code]) !== null;
-                $existsInOrders = $db->fetch('SELECT id FROM orders WHERE payment_code = ?', [$code]) !== null;
-            } while ($existsInDeposits || $existsInOrders);
-
+            $registry = new PaymentCodeRegistry($db);
+            $code = $registry->reserve('deposit');
             $db->execute(
                 "INSERT INTO deposits (user_id, code, status) VALUES (?, ?, 'pending')",
                 [$userId, $code]
             );
+            $depositId = $db->lastInsertId();
+            $registry->bind($code, 'deposit', $depositId);
 
             return [
-                'id' => $db->lastInsertId(),
+                'id' => $depositId,
                 'code' => $code,
             ];
         });

@@ -30,3 +30,5 @@ temp/
 # Cấu hình production cục bộ (nếu tạo thêm)
 config/*.local.php
 config/*.production.php
+config/payment_feed.php
+runtime/

@@ -42,3 +42,11 @@ File `004_product_quantity_checkout.sql` thực hiện các thay đổi sau:
 4. Xác nhận QR pending giữ nguyên `payment_code`, giá chốt và trạng thái.
 5. Kiểm tra unique key payment event, request token và stock delivery trước khi mở lại webhook/checkout.
 6. Không rollback bằng cách phục hồi database cũ sau khi đã nhận giao dịch mới; dùng migration sửa tiến để tránh mất dữ liệu tiền.
+
+## Migration 008: registry mã thanh toán và feed bên thứ ba
+
+- Số 008 được dùng có chủ đích vì production từng ghi nhận migration 007 dù file không còn trong repository.
+- Migration tạo registry unique toàn cục theo mã `DONATE` và backfill cả nạp ví/đơn hàng. Mã va chạm bị đưa vào `review`; đơn đã đóng nhưng không có bằng chứng tác động tài chính cũng bị review.
+- Không bật xử lý feed sau migration. Cấu hình mẫu mặc định `enabled=false`, `processing=false`; chỉ bật sau khi đổi token, xác nhận tài khoản, đối chiếu read-only và đặt `activation_at`.
+- Dừng ngắn checkout và webhook khi chạy migration, sao lưu database, rồi kiểm tra các dòng `ambiguous`/`review` trước rollout.
+- Worker feed chỉ đọc một trang khi chưa có hợp đồng cursor. Không dùng ID provider làm checkpoint hoặc khóa chống trùng.

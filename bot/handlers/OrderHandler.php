@@ -228,11 +228,8 @@ final class OrderHandler
                     [$requestToken, $userId, $variant['id'], $quantity, $unitPrice]
                 );
             }
-            do {
-                $paymentCode = Helpers::randomCode('DONATE');
-                $exists = $db->fetch('SELECT id FROM orders WHERE payment_code=?', [$paymentCode]) !== null
-                    || $db->fetch('SELECT id FROM deposits WHERE code=?', [$paymentCode]) !== null;
-            } while ($exists);
+            $registry = new PaymentCodeRegistry($db);
+            $paymentCode = $registry->reserve('order');
             $orderCode = Helpers::orderCode();
             $db->execute(
                 "INSERT INTO orders(order_code,payment_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,payment_method,status)
@@ -240,6 +237,7 @@ final class OrderHandler
                 [$orderCode, $paymentCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $total]
             );
             $orderId = $db->lastInsertId();
+            $registry->bind($paymentCode, 'order', $orderId);
             $db->execute("UPDATE purchase_requests SET status='completed',order_id=?,result_reason='qr_created' WHERE request_token=?", [$orderId, $requestToken]);
             return $db->fetch('SELECT * FROM orders WHERE id=?', [$orderId]);
         });

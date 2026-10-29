@@ -7,7 +7,7 @@ Bot bán sản phẩm số dùng PHP 8.1+, MySQL, Telegram Webhook và Web Admin
 - Hosting cPanel có PHP 8.1/8.2, MySQL, HTTPS.
 - PHP extensions: PDO MySQL, cURL, JSON, mbstring.
 - Telegram Bot Token từ BotFather.
-- Tài khoản VietQR và webhook biến động số dư (mặc định payload SePay).
+- Tài khoản VietQR và webhook biến động số dư (mặc định payload SePay), hoặc feed HTTPS bên thứ ba đã được xác minh hợp đồng.
 
 ## Cài đặt trên cPanel
 
@@ -63,12 +63,30 @@ Sao chép kết quả vào `admin_password_hash` trong `config/app.php`.
 - URL: `https://ten-mien-cua-ban.com/payment_webhook.php`
 - Authentication: header `Authorization: Bearer PAYMENT_SECRET`
 - `PAYMENT_SECRET` phải giống `payment_secret` trong `config/app.php`.
-- Webhook có chống xử lý trùng bằng ID giao dịch của nhà cung cấp.
+- Webhook và feed dùng chung registry nguyên tử; chống tác động tài chính trùng theo mã `DONATE` + 6 ký tự do bot phát hành, không phụ thuộc ID nhà cung cấp.
 
 Hệ thống nhận hai loại thanh toán:
 
 1. **Nạp ví**: Nội dung `Donate` + 6 ký tự chữ/số. Mỗi khách giữ một mã chờ đến khi dùng thành công. Số tiền tối thiểu 2.000đ.
 2. **Mua trực tiếp**: QR có đúng số tiền đơn. Nếu sản phẩm hết sau khi khách thanh toán, tiền tự động được cộng vào ví.
+
+## Feed giao dịch bên thứ ba và cron
+
+1. Thu hồi token từng được chia sẻ và tạo token mới. Sao chép `config/payment_feed.example.php` thành `config/payment_feed.local.php` trên server; file local được Git/deploy giữ nguyên.
+2. Điền URL HTTPS, host allowlist và token mới. Giữ `enabled=false`, `processing=false` trong lần deploy/migration đầu.
+3. Chạy migration 008, kiểm tra `payment_code_registry` không còn mã `ambiguous`/`review` chưa được đối soát.
+4. Bật `enabled=true` nhưng vẫn giữ `processing=false` để đối chiếu read-only. Feed `stale`/`incomplete` luôn bị chặn xử lý tiền.
+5. Chỉ sau khi xác nhận tài khoản, cửa sổ dữ liệu và mốc chuyển nguồn, đặt `activation_at` có timezone rồi mới đổi `processing=true`. Không để webhook cũ và feed xử lý ngoài service chung.
+6. Khi chưa có hợp đồng cursor, worker chỉ lấy một trang mỗi lượt; `next_cursor` không được suy diễn thành ID hoặc checkpoint.
+
+Cron cPanel mỗi phút (thay `CPANEL_USER` và binary PHP nếu hosting khác):
+
+```cron
+* * * * * /usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/payment_feed.php >/dev/null 2>&1
+* * * * * /usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/notification_outbox.php >/dev/null 2>&1
+```
+
+Hai worker dùng file lock để tránh chạy chồng. Audit chỉ lưu hash ID provider, mã kết quả an toàn và metadata cần thiết; không lưu token/URL chứa token. Có thể rollback bằng cách đặt `enabled=false` hoặc `processing=false`; không xóa registry/audit hay phục hồi webhook bỏ qua registry.
 
 ## Vận hành
 
