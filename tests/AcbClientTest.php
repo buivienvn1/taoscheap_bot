@@ -84,9 +84,14 @@ try {
     );
 
     expect(count($transport->requests) === 2, 'Login and history requests were expected');
-    $loginPayload = json_decode((string) $transport->requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+    $loginBody = (string) $transport->requests[0]['body'];
+    $loginPayload = json_decode($loginBody, true, 512, JSON_THROW_ON_ERROR);
     expect($loginPayload['username'] === 'test-user', 'Login username mismatch');
-    expect($loginPayload['deviceId'] !== '', 'Device ID must be generated');
+    expect(preg_match('/^[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/', $loginPayload['deviceId']) === 1, 'Device ID must be an uppercase UUID v4');
+    $expectedLoginBody = '{"username": "test-user", "password": "test-password", "deviceId": "'
+        . $loginPayload['deviceId']
+        . '", "clientId": "iuSuHYVufIUuNIREV0FB9EoLn9kHsDbm"}';
+    expect($loginBody === $expectedLoginBody, 'Login JSON must match Python json.dumps formatting');
     expect(count($transport->requests[0]['headers']) === 7, 'Login headers must match the Python client');
     expect(containsHeader($transport->requests[0]['headers'], 'Accept: application/json, text/plain, */*'), 'Accept header mismatch');
     expect(containsHeader($transport->requests[0]['headers'], 'Content-Type: application/json'), 'Content-Type header mismatch');

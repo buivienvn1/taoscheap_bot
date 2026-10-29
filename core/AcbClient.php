@@ -161,10 +161,7 @@ final class AcbClient
             $headers[] = 'Authorization: Bearer ' . $token;
         }
 
-        $encoded = null;
-        if ($payload !== null) {
-            $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        }
+        $encoded = $payload === null ? null : $this->encodePythonJsonObject($payload);
         $response = $this->transport->send(
             $method,
             self::BASE_URL . $path,
@@ -229,6 +226,17 @@ final class AcbClient
     {
         $token = trim((string) $value);
         return $token === '' ? null : $token;
+    }
+
+    private function encodePythonJsonObject(array $payload): string
+    {
+        $parts = [];
+        foreach ($payload as $key => $value) {
+            $encodedKey = json_encode((string) $key, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $encodedValue = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $parts[] = $encodedKey . ': ' . $encodedValue;
+        }
+        return '{' . implode(', ', $parts) . '}';
     }
 
     private function safeErrorDiagnostic(string $body): string
