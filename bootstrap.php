@@ -5,6 +5,7 @@ declare(strict_types=1);
 $app = require __DIR__ . '/config/app.php';
 $databaseConfig = require __DIR__ . '/config/database.php';
 $bank = require __DIR__ . '/config/bank.php';
+$payment = require __DIR__ . '/config/payment.php';
 
 date_default_timezone_set($app['timezone']);
 

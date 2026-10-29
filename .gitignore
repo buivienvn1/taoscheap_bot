@@ -30,3 +30,7 @@ temp/
 # Cấu hình production cục bộ (nếu tạo thêm)
 config/*.local.php
 config/*.production.php
+!config/*.local.example.php
+
+# Phiên xác thực và khóa runtime của nhà cung cấp thanh toán
+runtime/

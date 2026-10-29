@@ -42,3 +42,28 @@ File `004_product_quantity_checkout.sql` thực hiện các thay đổi sau:
 4. Xác nhận QR pending giữ nguyên `payment_code`, giá chốt và trạng thái.
 5. Kiểm tra unique key payment event, request token và stock delivery trước khi mở lại webhook/checkout.
 6. Không rollback bằng cách phục hồi database cũ sau khi đã nhận giao dịch mới; dùng migration sửa tiến để tránh mất dữ liệu tiền.
+
+## Migration 007: kiến trúc nhà cung cấp thanh toán
+
+File `007_payment_provider_architecture.sql` bổ sung:
+
+- Khóa idempotency payment event theo `provider + destination_account + provider_event_id`.
+- Tiền tệ, chiều giao dịch và thời gian phát sinh chuẩn hóa trên payment event.
+- Bảng giao dịch nguồn để audit dữ liệu ACB trước/sau xử lý và giữ hàng đợi `observed`, `review`, `failed`.
+- Trạng thái đồng bộ theo từng nhà cung cấp/tài khoản.
+- Trạng thái `processing`, thời điểm thử và mã lỗi không nhạy cảm cho notification outbox.
+
+### Trước khi chạy
+
+1. Sao lưu database và tạm dừng webhook/cron thanh toán.
+2. Kiểm tra index `uq_payment_event` hiện có đúng tên từ schema chuẩn.
+3. Ghi nhận số lượng payment event, tổng số dư, tổng giao dịch ví, đơn pending và deposit pending.
+4. Lưu ý DDL MySQL tự commit; transaction trong migration runner không đảm bảo rollback nguyên tử cho các câu `ALTER TABLE`/`CREATE TABLE`.
+
+### Sau khi chạy
+
+1. Xác nhận unique key mới gồm đủ ba cột và không mất payment event lịch sử; dữ liệu cũ có `destination_account=''` để giữ tính duy nhất theo provider/event ID cũ.
+2. Xác nhận hai bảng `payment_source_transactions`, `payment_sync_states` và các cột retry outbox đã tồn tại.
+3. Chạy ACB với `processing_enabled=false` trước; đối chiếu thủ công ID, chiều giao dịch, số tiền, tiền tệ, thời gian và mô tả.
+4. Chỉ đặt `activation_time` và bật xử lý sau khi dữ liệu chỉ đọc đạt yêu cầu. Không sửa/xóa payment event để chạy lại; dùng trạng thái nguồn và migration sửa tiến.
+5. Đối chiếu lại tổng số dư, transactions, đơn/deposit pending trước khi mở webhook và cron xử lý.

@@ -3,10 +3,11 @@ deployment:
   tasks:
     - /usr/bin/git fetch origin main
     - /usr/bin/git reset --hard origin/main
-    - /bin/mkdir -p "$HOME/taoscheap.qthang.net/config"
+    - /bin/mkdir -p "$HOME/taoscheap.qthang.net/config" "$HOME/taoscheap.qthang.net/runtime/acb"
     - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/app.php" || /bin/cp config/app.php "$HOME/taoscheap.qthang.net/config/app.php"
     - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/database.php" || /bin/cp config/database.php "$HOME/taoscheap.qthang.net/config/database.php"
     - /usr/bin/test -f "$HOME/taoscheap.qthang.net/config/bank.php" || /bin/cp config/bank.php "$HOME/taoscheap.qthang.net/config/bank.php"
-    - /usr/bin/rsync -a --ignore-times --delay-updates --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --exclude='.git/' --exclude='.github/' --exclude='.cpanel.yml' --exclude='plans/' --exclude='config/app.php' --exclude='config/database.php' --exclude='config/bank.php' ./ "$HOME/taoscheap.qthang.net/"
+    - /usr/bin/rsync -a --ignore-times --delay-updates --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --exclude='.git/' --exclude='.github/' --exclude='.cpanel.yml' --exclude='plans/' --exclude='runtime/' --exclude='config/app.php' --exclude='config/database.php' --exclude='config/bank.php' --exclude='config/payment.local.php' ./ "$HOME/taoscheap.qthang.net/"
+    - /bin/chmod 700 "$HOME/taoscheap.qthang.net/runtime" "$HOME/taoscheap.qthang.net/runtime/acb"
     - /bin/sh -c 'PHP_BIN=/usr/local/bin/ea-php81; [ -x "$PHP_BIN" ] || PHP_BIN=/usr/bin/php; "$PHP_BIN" "$HOME/taoscheap.qthang.net/migrate.php"'
     - /usr/bin/git rev-parse HEAD > "$HOME/taoscheap.qthang.net/deploy-commit.txt"

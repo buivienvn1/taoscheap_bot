@@ -58,12 +58,37 @@ php -r "echo password_hash('MAT_KHAU_CUA_BAN', PASSWORD_DEFAULT), PHP_EOL;"
 
 Sao chép kết quả vào `admin_password_hash` trong `config/app.php`.
 
-## Webhook thanh toán SePay
+## Nguồn thanh toán
+
+Nghiệp vụ ví, đơn hàng, kho và thông báo được xử lý qua lớp dùng chung. Webhook SePay và bộ đồng bộ ACB chỉ làm nhiệm vụ xác thực/chuẩn hóa sự kiện nguồn. Khóa chống xử lý trùng gồm nhà cung cấp, tài khoản nhận và ID giao dịch nguồn; kiến trúc này cho phép thêm Binance Pay mà không sao chép nghiệp vụ đơn hàng.
+
+### Webhook thanh toán SePay
 
 - URL: `https://ten-mien-cua-ban.com/payment_webhook.php`
 - Authentication: header `Authorization: Bearer PAYMENT_SECRET`
 - `PAYMENT_SECRET` phải giống `payment_secret` trong `config/app.php`.
 - Webhook có chống xử lý trùng bằng ID giao dịch của nhà cung cấp.
+
+### Đồng bộ ACB trực tiếp
+
+1. Chạy migration mới nhất và sao lưu database trước khi bật cron. DDL MySQL có thể tự commit nên không coi migration schema là thao tác rollback nguyên tử.
+2. Sao chép `config/payment.local.example.php` thành `config/payment.local.php` trực tiếp trên server. File local và token phiên trong `runtime/` bị Git bỏ qua, không nhập mật khẩu ACB vào file tracked hoặc nội dung cron.
+3. Ban đầu đặt `enabled=true`, `processing_enabled=false`. Chạy thủ công lệnh chỉ đọc:
+
+```bash
+/usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/acb_sync.php
+```
+
+4. Kiểm tra `payment_source_transactions`: ID giao dịch ổn định, chiều `incoming/outgoing`, số tiền, tiền tệ, thời gian và mô tả phải đúng. Dữ liệu thiếu/mơ hồ được đưa vào `review`, không cộng tiền.
+5. Đặt `activation_time` theo múi giờ `Asia/Ho_Chi_Minh` tại thời điểm chuyển nguồn đã đối soát, sau đó mới đổi `processing_enabled=true`. Giao dịch trước mốc này không được xử lý.
+6. Tạo hai cron cPanel chạy mỗi phút:
+
+```cron
+* * * * * /usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/acb_sync.php >/dev/null 2>&1
+* * * * * /usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/payment_notifications.php >/dev/null 2>&1
+```
+
+Đường dẫn PHP và home phải thay theo cPanel thực tế. Cron đồng bộ dùng khóa MySQL chống chạy chồng, phân trang, cửa sổ quét chồng và hàng đợi nguồn lưu trong database. Khi cần dừng khẩn cấp, đặt `processing_enabled=false`; không xóa giao dịch nguồn, payment event hoặc token idempotency. Sau khi sửa lỗi, chạy lại cron để tiếp tục mà không cộng trùng.
 
 Hệ thống nhận hai loại thanh toán:
 
@@ -86,9 +111,20 @@ Nguồn API đã có interface và lớp nền trong `suppliers/`. Mỗi nhà cu
 - Chỉ chạy file migration mới trong `migrations/` theo thứ tự số.
 - Không sửa migration đã chạy và không dùng `DROP TABLE`.
 
+## Kiểm thử
+
+Máy có PHP 8.1+ có thể chạy test ACB giả lập, hoàn toàn không gọi ngân hàng:
+
+```bash
+php tests/AcbClientTest.php
+```
+
+Kiểm thử tích hợp payment cần một database test riêng đã import `install.sql`; tuyệt đối không chạy fixture tiền/kho trên database production.
+
 ## Bảo mật
 
-- Không commit hoặc chia sẻ các file trong `config/` sau khi điền secret.
+- Không commit hoặc chia sẻ các file trong `config/` sau khi điền secret; riêng cấu hình production ACB phải nằm trong `config/payment.local.php`.
+- Không ghi bot token, ACB token/mật khẩu, số tài khoản, nội dung giao dịch hoặc Telegram chat ID vào log.
 - Dùng HTTPS bắt buộc.
 - Đặt secret dài, khác nhau cho Telegram và payment webhook.
 - Nên đổi tên đường dẫn Admin hoặc bật cPanel Directory Privacy nếu cần thêm lớp bảo vệ.
