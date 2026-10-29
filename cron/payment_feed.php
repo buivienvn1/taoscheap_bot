@@ -13,14 +13,27 @@ $lock = fopen(sys_get_temp_dir() . '/taos-payment-feed.lock', 'c');
 if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) exit(0);
 try {
     $client = new PaymentFeedClient($config);
-    $feed = (new PaymentFeedAdapter())->adapt($client->fetchPage(), (string) ($config['provider'] ?? 'acb_third_party'));
+    $adapter = new PaymentFeedAdapter();
     $outbox = new NotificationOutbox($db, $telegram);
     $processor = new PaymentProcessor($db, $outbox, $app);
-    $result = (new PaymentFeedService($db, $processor, $config))->run($feed);
-    fwrite(STDOUT, json_encode($result) . PHP_EOL);
-} catch (Throwable $error) {
-    error_log('Payment feed failed: ' . $error::class);
-    exit(1);
+    $service = new PaymentFeedService($db, $processor, $config);
+    $provider = (string) ($config['provider'] ?? 'acb_third_party');
+    $startedAt = time();
+
+    do {
+        try {
+            $feed = $adapter->adapt($client->fetchPage(), $provider);
+            $result = $service->run($feed);
+            $result['notifications_sent'] = $outbox->retryBatch(100);
+            fwrite(STDOUT, json_encode($result) . PHP_EOL);
+        } catch (Throwable $error) {
+            error_log('Payment feed failed: ' . $error::class);
+        }
+
+        $remainingSeconds = 50 - (time() - $startedAt);
+        if ($remainingSeconds < 20) break;
+        sleep(20);
+    } while (true);
 } finally {
     flock($lock, LOCK_UN);
     fclose($lock);
