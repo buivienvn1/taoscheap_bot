@@ -174,7 +174,11 @@ final class AcbClient
             $this->requestTimeout,
         );
         if ($response['status'] < 200 || $response['status'] >= 300) {
-            throw new RuntimeException('ACB_HTTP_' . $response['status'] . ':' . $context);
+            $diagnostic = $this->safeErrorDiagnostic($response['body']);
+            throw new RuntimeException(
+                'ACB_HTTP_' . $response['status'] . ':' . $context
+                . ($diagnostic === '' ? '' : ':' . $diagnostic)
+            );
         }
 
         $decoded = json_decode($response['body'], true, 512, JSON_THROW_ON_ERROR);
@@ -225,6 +229,47 @@ final class AcbClient
     {
         $token = trim((string) $value);
         return $token === '' ? null : $token;
+    }
+
+    private function safeErrorDiagnostic(string $body): string
+    {
+        try {
+            $decoded = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            return '';
+        }
+        if (!is_array($decoded)) {
+            return '';
+        }
+
+        $parts = [];
+        foreach (['code', 'errorCode', 'error_code'] as $field) {
+            $value = $this->safeDiagnosticValue($decoded[$field] ?? null, 48);
+            if ($value !== '') {
+                $parts[] = 'code=' . $value;
+                break;
+            }
+        }
+        foreach (['message', 'errorMessage', 'error_description'] as $field) {
+            $value = $this->safeDiagnosticValue($decoded[$field] ?? null, 160);
+            if ($value !== '') {
+                $parts[] = 'message=' . $value;
+                break;
+            }
+        }
+        return implode(',', $parts);
+    }
+
+    private function safeDiagnosticValue(mixed $value, int $maxLength): string
+    {
+        if (!is_string($value) && !is_int($value)) {
+            return '';
+        }
+        $safe = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', trim((string) $value)) ?? '';
+        $safe = preg_replace('/\b\d{6,}\b/u', '[redacted-number]', $safe) ?? '';
+        $safe = preg_replace('/\b[A-Za-z0-9+\/_=-]{24,}\b/u', '[redacted-value]', $safe) ?? '';
+        $safe = trim(preg_replace('/\s+/u', ' ', $safe) ?? '');
+        return substr($safe, 0, $maxLength);
     }
 
     private function uuid(): string

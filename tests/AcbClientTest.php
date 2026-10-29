@@ -110,6 +110,32 @@ try {
     expect(str_ends_with($transport401->requests[1]['url'], '/mb/v2/auth/tokens'), '401 recovery must perform a fresh login');
     expect($result401['transactions'] === [], 'List-shaped history response was not accepted');
 
+    unlink($sessionFile);
+    $transportError = new FakeAcbHttpTransport([
+        jsonResponse([
+            'errorCode' => 'DEVICE_NOT_REGISTERED',
+            'message' => 'Account 123456789 token abcdefghijklmnopqrstuvwxyz123456',
+            'details' => 'raw-private-details',
+        ], 400),
+    ]);
+    $clientError = new AcbClient('test-user', 'test-password', $sessionFile, 3, 7, $transportError);
+    try {
+        $clientError->transactionPage(
+            '123456789',
+            new DateTimeImmutable('2026-01-03 00:00:00+07:00'),
+            new DateTimeImmutable('2026-01-03 00:05:00+07:00'),
+        );
+        throw new RuntimeException('A 400 login response must fail');
+    } catch (RuntimeException $error) {
+        expect(str_contains($error->getMessage(), 'ACB_HTTP_400:auth_login'), 'Safe error context missing');
+        expect(str_contains($error->getMessage(), 'code=DEVICE_NOT_REGISTERED'), 'Whitelisted error code missing');
+        expect(str_contains($error->getMessage(), '[redacted-number]'), 'Long account-like number was not redacted');
+        expect(str_contains($error->getMessage(), '[redacted-value]'), 'Token-like value was not redacted');
+        expect(!str_contains($error->getMessage(), 'raw-private-details'), 'Non-whitelisted response field leaked');
+        expect(!str_contains($error->getMessage(), '123456789'), 'Account-like number leaked');
+        expect(!str_contains($error->getMessage(), 'abcdefghijklmnopqrstuvwxyz123456'), 'Token-like value leaked');
+    }
+
     fwrite(STDOUT, "AcbClientTest passed.\n");
 } finally {
     if (is_file($sessionFile)) {
