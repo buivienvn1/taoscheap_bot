@@ -16,8 +16,65 @@ final class Helpers
 
     public static function sanitizeTelegramHtml(?string $text): string
     {
-        $allowedTags = '<b><strong><i><em><u><ins><s><strike><del><tg-spoiler><a><code><pre><blockquote>';
-        return strip_tags($text ?? '', $allowedTags);
+        $text = preg_replace('/<br\s*\/?>/iu', "\n", $text ?? '') ?? '';
+        $parts = preg_split('/(<\s*\/?\s*[a-z][^>]*>)/iu', $text, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [];
+        $result = '';
+
+        foreach ($parts as $part) {
+            if ($part === '') continue;
+            if ($part[0] !== '<') {
+                $decoded = html_entity_decode($part, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $result .= htmlspecialchars($decoded, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                continue;
+            }
+
+            if (preg_match('/^<\s*\/\s*(b|strong|i|em|u|ins|s|strike|del|tg-spoiler|code|pre|blockquote)\s*>$/iu', $part, $match)) {
+                $result .= '</' . strtolower($match[1]) . '>';
+                continue;
+            }
+            if (preg_match('/^<\s*(b|strong|i|em|u|ins|s|strike|del|tg-spoiler|code|pre|blockquote)\s*>$/iu', $part, $match)) {
+                $result .= '<' . strtolower($match[1]) . '>';
+                continue;
+            }
+            if (preg_match('/^<\s*\/\s*a\s*>$/iu', $part)) {
+                $result .= '</a>';
+                continue;
+            }
+            if (preg_match('/^<\s*a\s+href\s*=\s*(["\'])(.*?)\1\s*>$/iu', $part, $match)) {
+                $url = html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                if (preg_match('/^(?:https?:\/\/|tg:\/\/)/i', $url)) {
+                    $result .= '<a href="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">';
+                }
+            }
+        }
+
+        return trim($result);
+    }
+
+    public static function extractMultilingualText(?string $text, string $language): string
+    {
+        $text = trim($text ?? '');
+        if ($text === '') return '';
+
+        $blocks = ['vi' => [], 'en' => []];
+        $hasLanguageTags = false;
+        foreach (array_keys($blocks) as $code) {
+            if (preg_match_all('/<' . $code . '\s*>(.*?)<\/\s*' . $code . '\s*>/isu', $text, $matches)) {
+                $hasLanguageTags = true;
+                $blocks[$code] = array_values(array_filter(
+                    array_map(static fn (string $value): string => trim($value), $matches[1]),
+                    static fn (string $value): bool => $value !== ''
+                ));
+            }
+        }
+
+        if (!$hasLanguageTags) return $text;
+
+        $language = strtolower($language) === 'en' ? 'en' : 'vi';
+        if ($blocks[$language] !== []) return implode("\n", $blocks[$language]);
+
+        $fallback = $language === 'vi' ? 'en' : 'vi';
+        return implode("\n", $blocks[$fallback]);
     }
 
     public static function randomCode(string $prefix = 'DONATE', int $length = 6): string

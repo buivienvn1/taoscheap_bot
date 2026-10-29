@@ -168,16 +168,11 @@ final class ProductHandler
             $quantity = $displayQuantity;
         }
         $total = number_format((float) $product['price'] * $quantity, 2, '.', '');
-        $descriptionLines = preg_split('/\R/u', trim((string) $product['description'])) ?: [];
-        $featureLines = preg_split('/\R/u', trim((string) $product['features'])) ?: [];
-        $detailLines = array_values(array_filter(
-            array_merge($descriptionLines, $featureLines),
-            static fn (string $line): bool => trim($line) !== ''
-        ));
-        $description = implode("\n", array_map(
-            static fn (string $line): string => '╰ ' . Helpers::escape(trim($line)),
-            $detailLines
-        ));
+        $descriptionParts = array_values(array_filter([
+            Helpers::extractMultilingualText((string) $product['description'], $lang->code()),
+            Helpers::extractMultilingualText((string) $product['features'], $lang->code()),
+        ], static fn (string $value): bool => trim($value) !== ''));
+        $description = Helpers::sanitizeTelegramHtml(implode("\n", $descriptionParts));
         if ($description === '') {
             $description = '╰ ' . $lang->get('description_empty');
         }
