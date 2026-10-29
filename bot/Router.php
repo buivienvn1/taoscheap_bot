@@ -115,16 +115,35 @@ final class Router
 
     private function findUser(array $from): array
     {
-        $user = $this->db->fetch('SELECT * FROM users WHERE telegram_id = ?', [(int) $from['id']]);
-        return $user ?? $this->upsertUser($from);
+        return $this->upsertUser($from);
     }
 
     private function upsertUser(array $from): array
     {
+        $telegramId = (int) ($from['id'] ?? 0);
+        $rawData = json_encode($from, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         $this->db->execute(
-            'INSERT INTO users (telegram_id, username, first_name) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username), first_name = VALUES(first_name)',
-            [(int) $from['id'], $from['username'] ?? null, $from['first_name'] ?? '']
+            'INSERT INTO users (telegram_id,username,first_name,last_name,language_code,is_premium,is_bot,raw_data)
+             VALUES (?,?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE
+                username=VALUES(username),
+                first_name=VALUES(first_name),
+                last_name=VALUES(last_name),
+                language_code=VALUES(language_code),
+                is_premium=VALUES(is_premium),
+                is_bot=VALUES(is_bot),
+                raw_data=VALUES(raw_data)',
+            [
+                $telegramId,
+                $from['username'] ?? null,
+                $from['first_name'] ?? '',
+                $from['last_name'] ?? null,
+                $from['language_code'] ?? null,
+                !empty($from['is_premium']) ? 1 : 0,
+                !empty($from['is_bot']) ? 1 : 0,
+                $rawData === false ? null : $rawData,
+            ]
         );
-        return $this->db->fetch('SELECT * FROM users WHERE telegram_id = ?', [(int) $from['id']]);
+        return $this->db->fetch('SELECT * FROM users WHERE telegram_id = ?', [$telegramId]);
     }
 }

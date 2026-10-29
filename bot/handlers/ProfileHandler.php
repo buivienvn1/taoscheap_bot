@@ -13,9 +13,17 @@ final class ProfileHandler
     public function show(int $chatId, int $messageId, array $user, Language $lang): void
     {
         $count = $this->db->fetch("SELECT COUNT(*) total FROM orders WHERE user_id=? AND status='completed'", [$user['id']]);
+        $fullName = trim((string) $user['first_name'] . ' ' . (string) ($user['last_name'] ?? ''));
+        $username = trim((string) ($user['username'] ?? ''));
+        $usernameText = $username === '' ? $lang->get('username_empty') : '@' . Helpers::escape($username);
+        $premiumLine = !empty($user['is_premium'])
+            ? "\n⭐ " . $lang->get('telegram_premium')
+            : '';
         $text = '<blockquote><b>' . $lang->get('profile_title') . "</b></blockquote>\n\n"
             . $lang->get('id') . ': <code>' . (int) $user['telegram_id'] . "</code>\n"
-            . $lang->get('name') . ': ' . Helpers::escape($user['first_name']) . "\n"
+            . $lang->get('name') . ': ' . Helpers::escape($fullName) . "\n"
+            . $lang->get('username') . ': ' . $usernameText
+            . $premiumLine . "\n"
             . $lang->get('balance') . ': <b>' . Helpers::money($user['balance']) . "</b>\n"
             . $lang->get('purchased_orders') . ': ' . (int) $count['total'];
         $keyboard = [[['text' => $lang->get('order_history_button'), 'callback_data' => 'history:1']], [['text' => $lang->get('back'), 'callback_data' => 'start']]];

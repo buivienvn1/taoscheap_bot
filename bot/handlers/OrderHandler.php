@@ -79,15 +79,27 @@ final class OrderHandler
                 'account' => Helpers::escape($bank['account_number']),
             ]) . "\n"
             . $lang->get('payment_content_line', ['content' => Helpers::escape($paymentCode)]) . "\n\n"
-            . $lang->get('payment_instruction') . "\n\n"
-            . '<b>' . $lang->get('payment_no_reservation') . '</b>';
-        $keyboard = [[['text' => $lang->get('products_button'), 'callback_data' => 'products']]];
+            . $lang->get('payment_instruction');
+        $keyboard = [[['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId]]];
         try {
-            $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
+            $photoResult = $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
         } catch (Throwable $error) {
             error_log('Order QR delivery failed: ' . $error::class);
             $fallbackKeyboard = [[['text' => $lang->get('open_qr'), 'url' => $qrUrl]], ...$keyboard];
             $this->telegram->editMessage($chatId, $messageId, $content . "\n\n<i>" . $lang->get('qr_unavailable') . '</i>', $fallbackKeyboard);
+            return;
+        }
+
+        $newMessageId = (int) ($photoResult['result']['message_id'] ?? 0);
+        if ($newMessageId > 0 && $newMessageId !== $messageId) {
+            $this->db->execute(
+                'INSERT INTO checkout_selections (user_id,message_id,product_id,quantity,version)
+                 SELECT user_id,?,product_id,quantity,version
+                 FROM checkout_selections
+                 WHERE user_id=? AND message_id=?
+                 ON DUPLICATE KEY UPDATE product_id=VALUES(product_id),quantity=VALUES(quantity),version=VALUES(version)',
+                [$newMessageId, $user['id'], $messageId]
+            );
         }
     }
 

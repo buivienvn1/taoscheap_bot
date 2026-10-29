@@ -223,6 +223,15 @@ final class ProductHandler
             ['text' => $lang->get('back'), 'callback_data' => 'products'],
             ['text' => $lang->get('refresh'), 'callback_data' => 'product:' . $productId],
         ];
-        $this->telegram->editMessage($chatId, $messageId, trim($text), $keyboard);
+        $messageResult = $this->telegram->editMessage($chatId, $messageId, trim($text), $keyboard);
+        $newMessageId = (int) ($messageResult['result']['message_id'] ?? 0);
+        if ($newMessageId > 0 && $newMessageId !== $messageId) {
+            $this->db->execute(
+                'INSERT INTO checkout_selections (user_id,message_id,product_id,quantity,version)
+                 VALUES (?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE product_id=VALUES(product_id),quantity=VALUES(quantity),version=VALUES(version)',
+                [$userId, $newMessageId, $productId, $quantity, $version]
+            );
+        }
     }
 }

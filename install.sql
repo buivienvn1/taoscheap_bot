@@ -38,9 +38,14 @@ CREATE TABLE users (
     telegram_id BIGINT NOT NULL,
     username VARCHAR(100) NULL,
     first_name VARCHAR(150) NOT NULL DEFAULT '',
+    last_name VARCHAR(150) NULL,
     balance DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     language VARCHAR(5) NOT NULL DEFAULT 'vi',
+    language_code VARCHAR(20) NULL,
+    is_premium TINYINT(1) NOT NULL DEFAULT 0,
+    is_bot TINYINT(1) NOT NULL DEFAULT 0,
     state VARCHAR(50) NULL,
+    raw_data JSON NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -319,7 +324,8 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('002_update_welcome_ui.sql', NULL),
     ('003_add_multilingual_settings.sql', NULL),
     ('004_product_quantity_checkout.sql', NULL),
-    ('005_stock_subscriptions.sql', NULL);
+    ('005_stock_subscriptions.sql', NULL),
+    ('006_expand_users_telegram_metadata.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),
