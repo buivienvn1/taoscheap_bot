@@ -182,7 +182,7 @@ final class ProductHandler
             $description = '╰ ' . $lang->get('description_empty');
         }
         $text = '<blockquote><b>' . $lang->get('product_detail') . "</b></blockquote>\n\n"
-            . '<b>🏷️ ' . Helpers::escape($product['name']) . "</b>\n"
+            . '<b>📦 ' . Helpers::escape($product['name']) . "</b>\n"
             . '╰ ' . $lang->get('price') . ': <b>' . Helpers::money($product['price']) . "</b>\n"
             . '╰ ' . $lang->get('stock') . ': <b>' . $stock . "</b>\n"
             . '╰ ' . $lang->get('sold') . ': <b>' . (int) $product['sold'] . "</b>\n\n"

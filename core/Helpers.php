@@ -20,7 +20,7 @@ final class Helpers
         return strip_tags($text ?? '', $allowedTags);
     }
 
-    public static function randomCode(string $prefix = 'Donate', int $length = 6): string
+    public static function randomCode(string $prefix = 'DONATE', int $length = 6): string
     {
         $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
         $value = '';
