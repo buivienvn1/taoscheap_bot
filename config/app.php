@@ -13,4 +13,6 @@ return [
     'admin_telegram_ids' => [],
     'admin_username' => 'admin',
     'admin_password_hash' => '',
+    // Số ngày duy trì phiên đăng nhập admin, kể cả khi đóng trình duyệt.
+    'admin_session_days' => 7,
 ];
