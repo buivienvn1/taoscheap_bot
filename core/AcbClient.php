@@ -55,7 +55,7 @@ final class AcbClient
 
         $path = '/mb/legacy/ss/cs/bankservice/saving/' . rawurlencode($accountNumber)
             . '/tx-history?' . $query;
-        $response = $this->authenticatedRequest('GET', $path);
+        $response = $this->authenticatedRequest('GET', $path, 'history');
         $data = $response['data'] ?? null;
         if (is_array($data) && array_is_list($data)) {
             return ['transactions' => $data, 'balance' => null, 'page' => $page, 'size' => $size];
@@ -78,19 +78,19 @@ final class AcbClient
         ];
     }
 
-    private function authenticatedRequest(string $method, string $path): array
+    private function authenticatedRequest(string $method, string $path, string $context): array
     {
         $this->authenticate();
         try {
-            return $this->request($method, $path, null, true);
+            return $this->request($method, $path, null, true, null, $context);
         } catch (RuntimeException $error) {
-            if (!str_starts_with($error->getMessage(), 'ACB_HTTP_401')) {
+            if (!str_starts_with($error->getMessage(), 'ACB_HTTP_401:')) {
                 throw $error;
             }
             $this->accessToken = null;
             $this->refreshToken = null;
             $this->login();
-            return $this->request($method, $path, null, true);
+            return $this->request($method, $path, null, true, null, $context . '_retry');
         }
     }
 
@@ -101,7 +101,7 @@ final class AcbClient
         }
         if ($this->refreshToken !== null) {
             try {
-                $response = $this->request('POST', '/mb/v2/auth/refresh', null, false, $this->refreshToken);
+                $response = $this->request('POST', '/mb/v2/auth/refresh', null, false, $this->refreshToken, 'auth_refresh');
                 $accessToken = trim((string) ($response['accessToken'] ?? ''));
                 if ($accessToken === '') {
                     throw new UnexpectedValueException('ACB refresh response has no access token');
@@ -128,7 +128,7 @@ final class AcbClient
             'password' => $this->password,
             'deviceId' => $this->deviceId,
             'clientId' => self::CLIENT_ID,
-        ]);
+        ], false, null, 'auth_login');
         $this->accessToken = trim((string) ($response['accessToken'] ?? ''));
         $this->refreshToken = trim((string) ($response['refreshToken'] ?? ''));
         if ($this->accessToken === '' || $this->refreshToken === '') {
@@ -145,6 +145,7 @@ final class AcbClient
         ?array $payload = null,
         bool $useAccessToken = false,
         ?string $bearerToken = null,
+        string $context = 'request',
     ): array {
         $headers = [
             'Accept: application/json, text/plain, */*',
@@ -173,7 +174,7 @@ final class AcbClient
             $this->requestTimeout,
         );
         if ($response['status'] < 200 || $response['status'] >= 300) {
-            throw new RuntimeException('ACB_HTTP_' . $response['status']);
+            throw new RuntimeException('ACB_HTTP_' . $response['status'] . ':' . $context);
         }
 
         $decoded = json_decode($response['body'], true, 512, JSON_THROW_ON_ERROR);
