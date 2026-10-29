@@ -6,13 +6,10 @@ only safe status/stage/error-code metadata and never prints credentials, tokens,
 account numbers, response bodies, or transaction data.
 """
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 import json
 import sys
 import uuid
-from typing import Any
 
 import requests
 
@@ -23,12 +20,12 @@ API_KEY = "CQk6S5usauGmMgMYLGqCuDtgtqIM8FI1"
 CONVERSATION_ID = "f43472f1-6d88-4228-91b9-4618a079342a"
 
 
-def safe_error_code(response: requests.Response | None) -> str:
+def safe_error_code(response):
     if response is None:
         return ""
     try:
         payload = response.json()
-    except (ValueError, requests.exceptions.JSONDecodeError):
+    except ValueError:
         return ""
     if not isinstance(payload, dict):
         return ""
@@ -41,7 +38,7 @@ def safe_error_code(response: requests.Response | None) -> str:
     return ""
 
 
-def fail(stage: str, error: BaseException) -> int:
+def fail(stage, error):
     response = error.response if isinstance(error, requests.exceptions.HTTPError) else None
     status = response.status_code if response is not None else 0
     code = safe_error_code(response)
@@ -52,17 +49,17 @@ def fail(stage: str, error: BaseException) -> int:
     return 1
 
 
-def read_config() -> dict[str, Any]:
+def read_config():
     try:
         payload = json.load(sys.stdin)
-    except (ValueError, json.JSONDecodeError) as error:
+    except ValueError as error:
         raise RuntimeError("invalid_stdin_json") from error
     if not isinstance(payload, dict):
         raise RuntimeError("invalid_stdin_object")
     return payload
 
 
-def main() -> int:
+def main():
     try:
         config = read_config()
         username = config.get("username")
