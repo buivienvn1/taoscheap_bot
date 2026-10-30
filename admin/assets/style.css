@@ -350,8 +350,19 @@ input[type="submit"]:disabled {
 .filter-form select,
 .filter-form button {
     height: 36px;
+    min-height: 36px;
     margin: 0;
     box-sizing: border-box
+}
+
+.filter-form select,
+.toolbar select,
+.toolbar input:not([type="checkbox"]):not([type="radio"]) {
+    height: 36px;
+    min-height: 36px;
+    padding: 0 9px;
+    line-height: 20px;
+    vertical-align: middle
 }
 
 .source-grid {
