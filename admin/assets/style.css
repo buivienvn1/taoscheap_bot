@@ -542,6 +542,31 @@ input[type="submit"]:disabled {
     display: none
 }
 
+.admin-modal .copyable-content {
+    display: grid;
+    gap: 8px;
+    margin: 0 0 12px
+}
+
+.admin-modal .copyable-content .stock-content {
+    margin: 0;
+    max-width: none;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #f8fafc
+}
+
+.admin-modal label {
+    display: block;
+    margin: 12px 0 4px;
+    font-weight: 600
+}
+
+.admin-modal .actions {
+    margin-top: 14px
+}
+
 .stock-modal {
     position: fixed;
     inset: 0;
@@ -708,6 +733,10 @@ input[type="submit"]:disabled {
 
     .stock-modal {
         padding: 10px
+    }
+
+    .admin-modal .copyable-content button {
+        width: 100%
     }
 
     .stock-modal-dialog {

@@ -8,10 +8,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
     $amount = (float) ($_POST['amount'] ?? 0);
     $userId = (int) ($_POST['user_id'] ?? 0);
+    $reason = trim((string) ($_POST['reason'] ?? ''));
+    $reason = $reason !== '' ? mb_substr($reason, 0, 255) : 'Admin điều chỉnh';
     if ($amount !== 0.0 && $userId > 0) {
-        $db->transaction(function (Database $db) use ($amount, $userId): void {
+        $db->transaction(function (Database $db) use ($amount, $userId, $reason): void {
             $db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$amount, $userId]);
-            $db->execute("INSERT INTO transactions(user_id,type,amount,note) VALUES(?,'adjustment',?,'Admin điều chỉnh')", [$userId, $amount]);
+            $db->execute("INSERT INTO transactions(user_id,type,amount,note) VALUES(?,'adjustment',?,?)", [$userId, $amount, $reason]);
         });
     }
     redirectAdmin('users', $adminLang->get('admin_users_balance_updated'));
@@ -102,12 +104,9 @@ unset($queryBase['p'], $queryBase['message']);
                         </td>
                         <td><?= e(Helpers::dateTime((string) $row['created_at'])) ?></td>
                         <td>
-                            <form method="post" class="actions">
-                                <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
-                                <input type="hidden" name="user_id" value="<?= e((string) $row['id']) ?>">
-                                <input name="amount" type="number" step="1000" placeholder="<?= e($adminLang->get('admin_adjust_placeholder')) ?>" style="width: 110px;">
-                                <button type="submit"><?= e($adminLang->get('admin_save')) ?></button>
-                            </form>
+                            <button type="button" class="secondary" data-open-user-adjust="<?= e((string) $row['id']) ?>">
+                                <?= e($adminLang->get('admin_users_adjust_open')) ?>
+                            </button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -128,3 +127,50 @@ unset($queryBase['p'], $queryBase['message']);
         <?php endif; ?>
     </div>
 </div>
+
+<div class="admin-modal stock-modal" id="user-adjust-modal" hidden aria-hidden="true">
+    <div class="stock-modal-backdrop" data-close-user-adjust></div>
+    <div class="stock-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="user-adjust-title">
+        <div class="stock-modal-header">
+            <h2 id="user-adjust-title"><?= e($adminLang->get('admin_users_adjust_title')) ?></h2>
+            <button type="button" class="secondary" data-close-user-adjust><?= e($adminLang->get('admin_users_adjust_cancel')) ?></button>
+        </div>
+        <div class="stock-modal-body">
+            <form method="post">
+                <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">
+                <input type="hidden" name="user_id" id="adjust-user-id" value="">
+                <p><strong><?= e($adminLang->get('admin_users_adjust_user')) ?>:</strong> <span id="adjust-user-name">-</span></p>
+                <p><strong><?= e($adminLang->get('admin_users_adjust_current_balance')) ?>:</strong> <span id="adjust-user-balance">-</span></p>
+                <label for="adjust-amount"><?= e($adminLang->get('admin_users_adjust_amount')) ?></label>
+                <input id="adjust-amount" name="amount" type="number" step="1000" required placeholder="<?= e($adminLang->get('admin_adjust_placeholder')) ?>">
+                <label for="adjust-reason"><?= e($adminLang->get('admin_users_adjust_reason')) ?></label>
+                <textarea id="adjust-reason" name="reason" maxlength="255" placeholder="<?= e($adminLang->get('admin_users_adjust_reason_placeholder')) ?>"></textarea>
+                <div class="actions"><button type="submit"><?= e($adminLang->get('admin_users_adjust_submit')) ?></button><button type="button" class="secondary" data-close-user-adjust><?= e($adminLang->get('admin_users_adjust_cancel')) ?></button></div>
+            </form>
+        </div>
+    </div>
+</div>
+<script type="application/json" id="user-adjust-data"><?= json_encode(array_reduce($rows, static function (array $users, array $row): array {
+    $users[(string) $row['id']] = ['name' => trim((string) $row['first_name'] . ' ' . (string) ($row['last_name'] ?? '')) ?: '-', 'balance' => Helpers::money($row['balance'])];
+    return $users;
+}, []), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+<script>
+(function () {
+    var modal = document.getElementById('user-adjust-modal');
+    var users = JSON.parse(document.getElementById('user-adjust-data').textContent || '{}');
+    var userId = document.getElementById('adjust-user-id');
+    var userName = document.getElementById('adjust-user-name');
+    var balance = document.getElementById('adjust-user-balance');
+    function closeModal() { modal.hidden = true; modal.setAttribute('aria-hidden', 'true'); document.body.classList.remove('modal-open'); }
+    document.querySelectorAll('[data-open-user-adjust]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var user = users[button.dataset.openUserAdjust]; if (!user) return;
+            userId.value = button.dataset.openUserAdjust; userName.textContent = user.name; balance.textContent = user.balance;
+            modal.hidden = false; modal.setAttribute('aria-hidden', 'false'); document.body.classList.add('modal-open');
+            document.getElementById('adjust-amount').focus();
+        });
+    });
+    document.querySelectorAll('[data-close-user-adjust]').forEach(function (button) { button.addEventListener('click', closeModal); });
+    document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !modal.hidden) closeModal(); });
+}());
+</script>
