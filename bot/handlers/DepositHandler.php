@@ -36,14 +36,15 @@ final class DepositHandler
         });
         $bank = $this->vietQr->transferDetails();
         $qrUrl = $this->vietQr->imageUrl((string) $deposit['code']);
-        $content = $lang->get('deposit_compact_title') . "\n"
+        $content = '<blockquote><b>' . $lang->get('deposit_title') . "</b></blockquote>\n\n"
             . $lang->get('payment_bank_line', [
                 'bank' => Helpers::escape($bank['bank_id']),
                 'account' => Helpers::escape($bank['account_number']),
             ]) . "\n"
             . $lang->get('payment_content_line', [
                 'content' => Helpers::escape((string) $deposit['code']),
-            ]);
+            ]) . "\n\n"
+            . $lang->get('payment_instruction');
         $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
 
         try {

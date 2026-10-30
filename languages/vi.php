@@ -29,7 +29,6 @@ return [
     'refresh' => '🔄 Làm mới',
     'main_menu' => '⬅ Menu chính',
     'deposit_title' => 'NẠP TIỀN VÀO VÍ',
-    'deposit_compact_title' => '💳 Nạp tiền vào ví',
     'payment_bank_line' => '🏦 Ngân hàng: <b>:bank</b> | STK: <code>:account</code>',
     'payment_content_line' => '📝 Nội dung: <code>:content</code>',
     'payment_compact_item' => '📦 :product x :quantity',
