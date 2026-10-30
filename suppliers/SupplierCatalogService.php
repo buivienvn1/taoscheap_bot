@@ -78,13 +78,21 @@ final class SupplierCatalogService
         return ['success' => $providers > 0 && $errors === 0, 'providers' => $providers, 'errors' => $errors];
     }
 
-    public function effectiveStock(array $product, float $balance = 0.0): int
+    public function effectiveStock(array $product, float $balance): int
     {
-        if (empty($product['is_active']) || empty($product['is_available'])) {
+        $supplierStock = max(0, (int) ($product['stock'] ?? 0));
+        $price = is_numeric($product['unit_price'] ?? null) ? (float) $product['unit_price'] : 0.0;
+        if (
+            $supplierStock === 0
+            || $price <= 0
+            || $balance <= 0
+            || empty($product['is_active'])
+            || empty($product['is_available'])
+        ) {
             return 0;
         }
 
-        return max(0, (int) ($product['stock'] ?? 0));
+        return min($supplierStock, max(0, (int) floor($balance / $price)));
     }
 
     /**
@@ -115,8 +123,19 @@ final class SupplierCatalogService
             . ' GROUP BY variant_id',
             $variantIds
         );
+        $balanceRows = $this->db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT','VND')");
+
         $manualByVariant = [];
         foreach ($manualRows as $row) $manualByVariant[(int) $row['variant_id']] = (int) $row['available'];
+        $balances = [];
+        foreach ($balanceRows as $row) {
+            $providerKey = (string) $row['provider_key'];
+            $curr = strtoupper((string) $row['currency']);
+            if ($curr === 'USD') {
+                $curr = 'USDT';
+            }
+            $balances[$providerKey][$curr] = (float) $row['amount'];
+        }
 
         $providerNames = $this->registry->names();
         $result = [];
@@ -139,7 +158,12 @@ final class SupplierCatalogService
             $result[$variantId]['has_api'] = true;
             if ($result[$variantId]['api_available'] > 0) continue;
             $providerKey = (string) ($source['provider_key'] ?? '');
-            $effective = $this->effectiveStock($source);
+            $sourceCurrency = strtoupper((string) ($source['currency'] ?? 'USDT'));
+            if ($sourceCurrency === 'USD') {
+                $sourceCurrency = 'USDT';
+            }
+            $balance = (float) ($balances[$providerKey][$sourceCurrency] ?? 0.0);
+            $effective = $this->effectiveStock($source, $balance);
             if ($effective <= 0) continue;
             $result[$variantId]['api_available'] = $effective;
             $result[$variantId]['api_provider_key'] = $providerKey;

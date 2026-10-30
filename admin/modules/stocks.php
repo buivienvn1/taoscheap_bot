@@ -180,7 +180,9 @@ $remoteProductsByKey = [];
 foreach ($remoteProducts as $remoteProduct) {
     $providerKey = (string) $remoteProduct['provider_key'];
     $remoteCode = (string) $remoteProduct['remote_product_code'];
-    $remoteProduct['effective_stock'] = $supplierCatalog->effectiveStock($remoteProduct);
+    $remoteProduct['effective_stock'] = !empty($remoteProduct['is_available'])
+        ? max(0, (int) ($remoteProduct['stock'] ?? 0))
+        : 0;
     $remoteProduct['display_price'] = $remoteProduct['unit_price'] === null
         ? '—'
         : Helpers::cleanNumber($remoteProduct['unit_price']);

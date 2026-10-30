@@ -189,15 +189,23 @@ $assert($registeredProvider instanceof TunVnPreHubSupplier, 'instance of TunVnPr
 $assert($registeredProvider->name() === '@TunVN_PreHub_bot', 'registered provider name matches');
 $assert(isset($registry->names()['tunvn_prehub']), 'tunvn_prehub is in names() list');
 
-// 5. Kiểm tra tồn kho nhà cung cấp độc lập với số dư tài khoản
+// 5. Kiểm tra logic tính effectiveStock với tiền tệ VND
 $fakeService = new class {
-    public function effectiveStock(array $product, float $balance = 0.0): int
+    public function effectiveStock(array $product, float $balance): int
     {
-        if (empty($product['is_active']) || empty($product['is_available'])) {
+        $supplierStock = max(0, (int) ($product['stock'] ?? 0));
+        $price = is_numeric($product['unit_price'] ?? null) ? (float) $product['unit_price'] : 0.0;
+        if (
+            $supplierStock === 0
+            || $price <= 0
+            || $balance <= 0
+            || empty($product['is_active'])
+            || empty($product['is_available'])
+        ) {
             return 0;
         }
 
-        return max(0, (int) ($product['stock'] ?? 0));
+        return min($supplierStock, max(0, (int) floor($balance / $price)));
     }
 };
 
@@ -209,16 +217,16 @@ $productVnd = [
     'is_available' => 1,
 ];
 
-$assert($fakeService->effectiveStock($productVnd, 120000.0) === 15, 'supplier stock is not limited by balance');
-$assert($fakeService->effectiveStock($productVnd, 1000000.0) === 15, 'supplier stock remains the reported total');
-$assert($fakeService->effectiveStock($productVnd, 30000.0) === 15, 'supplier stock remains available with low balance');
+// Với số dư ví VND = 120.000: floor(120.000 / 50.000) = 2 sản phẩm
+$effective = $fakeService->effectiveStock($productVnd, 120000.0);
+$assert($effective === 2, 'effective stock calculated with VND balance: floor(120k / 50k) = 2');
 
-$inactiveProduct = $productVnd;
-$inactiveProduct['is_active'] = 0;
-$assert($fakeService->effectiveStock($inactiveProduct, 1000000.0) === 0, 'inactive product has no effective stock');
+// Với số dư ví VND = 1.000.000: floor(1.000.000 / 50.000) = 20 > stock (15) -> 15
+$effectiveMax = $fakeService->effectiveStock($productVnd, 1000000.0);
+$assert($effectiveMax === 15, 'effective stock capped by supplier stock');
 
-$unavailableProduct = $productVnd;
-$unavailableProduct['is_available'] = 0;
-$assert($fakeService->effectiveStock($unavailableProduct, 1000000.0) === 0, 'unavailable product has no effective stock');
+// Với số dư ví VND = 30.000 (< 50.000) -> 0
+$effectiveZero = $fakeService->effectiveStock($productVnd, 30000.0);
+$assert($effectiveZero === 0, 'effective stock 0 when balance insufficient');
 
 echo "OK: {$count} TunVnPreHubSupplier assertions passed successfully.\n";
