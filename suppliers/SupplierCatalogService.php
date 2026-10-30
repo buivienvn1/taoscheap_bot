@@ -198,16 +198,25 @@ final class SupplierCatalogService
             return ['success' => false, 'message' => 'sync_in_progress'];
         }
         try {
-            $balances = $provider->getBalance();
+            $balances = [];
+            foreach ($provider->getBalance() as $currency => $amount) {
+                $currency = strtoupper((string) $currency);
+                if ($currency === 'USD') $currency = 'USDT';
+                if (!in_array($currency, ['USDT', 'VND'], true) || !is_numeric($amount)) continue;
+                $balances[$currency] = (string) $amount;
+            }
             $this->db->transaction(function (Database $db) use ($providerKey, $balances, $token): void {
                 if (!$this->owns($providerKey, 'balance', $token, $db)) {
                     throw new RuntimeException('stale_sync');
                 }
+                $db->execute(
+                    "DELETE FROM supplier_balances WHERE provider_key=? AND currency NOT IN ('USDT','VND')",
+                    [$providerKey]
+                );
                 foreach ($balances as $currency => $amount) {
-                    if (!is_numeric($amount)) continue;
                     $db->execute(
                         'INSERT INTO supplier_balances(provider_key,currency,amount,fetched_at) VALUES(?,?,?,NOW()) ON DUPLICATE KEY UPDATE amount=VALUES(amount),fetched_at=VALUES(fetched_at)',
-                        [$providerKey, strtoupper((string) $currency), (string) $amount]
+                        [$providerKey, $currency, $amount]
                     );
                 }
                 $this->finish($providerKey, 'balance', $token, null, $db);

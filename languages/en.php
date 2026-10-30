@@ -188,6 +188,7 @@ return [
     'admin_supplier_configured' => 'Configured',
     'admin_supplier_not_configured' => 'Not configured',
     'admin_supplier_no_balance' => 'No balance data yet.',
+    'admin_supplier_balance_vnd_equivalent' => '(~ :amount)',
     'admin_supplier_balance_updated' => 'Balance updated',
     'admin_supplier_catalog_updated' => 'Catalog updated',
     'admin_supplier_refresh_balance' => 'Refresh balance',

@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $providerNames = $supplierRegistry->names();
-$balances = $db->fetchAll('SELECT provider_key,currency,amount,fetched_at FROM supplier_balances ORDER BY provider_key,currency');
+$balances = $db->fetchAll("SELECT provider_key,currency,amount,fetched_at FROM supplier_balances WHERE currency IN ('USDT','VND') ORDER BY provider_key,currency");
 $balancesByProvider = [];
 $usdtBalances = [];
 foreach ($balances as $balance) {
@@ -131,7 +131,9 @@ if ($selected !== []) {
     <section class="card supplier-status-card">
         <div class="card-heading"><h3><?= e($provider->name()) ?></h3><span class="badge <?= $provider->isConfigured() ? 'success' : 'muted' ?>"><?= e($t($provider->isConfigured() ? 'admin_supplier_configured' : 'admin_supplier_not_configured')) ?></span></div>
         <div class="supplier-balances">
-            <?php foreach ($balancesByProvider[$providerKey] ?? [] as $balance): ?><strong><?= e(Helpers::formatDecimal($balance['amount'])) ?> <?= e($balance['currency']) ?></strong><?php endforeach; ?>
+            <?php foreach ($balancesByProvider[$providerKey] ?? [] as $balance): $currency = strtoupper((string) $balance['currency']); ?>
+                <strong><?php if ($currency === 'VND'): ?><?= e(Helpers::money($balance['amount'])) ?><?php else: ?><?= e(Helpers::formatDecimal($balance['amount'])) ?> USDT <small><?= e($t('admin_supplier_balance_vnd_equivalent', ['amount' => Helpers::money((float) $balance['amount'] * (float) ($rates['USDT'] ?? 0))])) ?></small><?php endif; ?></strong>
+            <?php endforeach; ?>
             <?php if (($balancesByProvider[$providerKey] ?? []) === []): ?><span class="help-text"><?= e($t('admin_supplier_no_balance')) ?></span><?php endif; ?>
         </div>
         <small><?= e($t('admin_supplier_balance_updated')) ?>: <?= e($balanceState['successful_at'] ?? '-') ?></small><br>

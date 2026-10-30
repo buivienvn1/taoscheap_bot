@@ -188,6 +188,7 @@ return [
     'admin_supplier_configured' => 'Đã cấu hình',
     'admin_supplier_not_configured' => 'Chưa cấu hình',
     'admin_supplier_no_balance' => 'Chưa có dữ liệu số dư.',
+    'admin_supplier_balance_vnd_equivalent' => '(~ :amount)',
     'admin_supplier_balance_updated' => 'Cập nhật số dư',
     'admin_supplier_catalog_updated' => 'Cập nhật danh mục',
     'admin_supplier_refresh_balance' => 'Làm mới số dư',
