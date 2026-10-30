@@ -161,6 +161,31 @@ final class NotificationOutbox
         return $cleaned;
     }
 
+    public function cleanupDirect(string $requestType, int $requestId): void
+    {
+        if ($requestId < 1 || !in_array($requestType, ['deposit', 'order'], true)) return;
+
+        $links = $this->db->fetchAll(
+            "SELECT * FROM payment_message_links
+             WHERE request_type=? AND request_id=? AND is_active=1 AND cleanup_status IN ('pending','failed') ORDER BY id",
+            [$requestType, $requestId]
+        );
+        foreach ($links as $link) {
+            try {
+                $this->telegram->deleteMessage((int) $link['chat_id'], (int) $link['message_id']);
+                $this->db->execute(
+                    "UPDATE payment_message_links SET is_active=0,cleanup_status='cleaned',cleanup_attempts=cleanup_attempts+1,cleaned_at=NOW(),last_error_code=NULL WHERE id=?",
+                    [$link['id']]
+                );
+            } catch (Throwable $error) {
+                $this->db->execute(
+                    "UPDATE payment_message_links SET cleanup_status='failed',cleanup_attempts=cleanup_attempts+1,last_error_code=? WHERE id=?",
+                    [substr($error::class, 0, 100), $link['id']]
+                );
+            }
+        }
+    }
+
     private function render(Language $lang, string $messageKey, array $params): string
     {
         $escaped = [];

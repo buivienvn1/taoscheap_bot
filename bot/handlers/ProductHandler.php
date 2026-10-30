@@ -149,7 +149,7 @@ final class ProductHandler
             "SELECT p.id,p.name,p.description,p.features,p.fake_sold,v.id variant_id,v.price,COALESCE(sold.total,0) sold
              FROM products p
              JOIN variants v ON v.id=p.source_variant_id AND v.status=1
-             LEFT JOIN (SELECT variant_id,COUNT(*) total FROM stocks WHERE is_sold=1 GROUP BY variant_id) sold ON sold.variant_id=v.id
+             LEFT JOIN (SELECT variant_id,COALESCE(SUM(quantity),0) total FROM orders WHERE status='completed' GROUP BY variant_id) sold ON sold.variant_id=v.id
              WHERE p.id=? AND p.status=1",
             [$productId]
         );

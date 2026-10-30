@@ -200,9 +200,11 @@ foreach ($remoteProducts as $remoteProduct) {
     $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
 $summary = $db->fetchAll(
-    'SELECT p.id,p.name,p.source_variant_id,p.fake_sold,COALESCE(SUM(s.is_sold=1),0) sold
-     FROM products p JOIN variants v ON v.id=p.source_variant_id LEFT JOIN stocks s ON s.variant_id=v.id
-     GROUP BY p.id,p.name,p.source_variant_id,p.fake_sold ORDER BY p.sort_order,p.id'
+    'SELECT p.id,p.name,p.source_variant_id,p.fake_sold,COALESCE(sold.total,0) sold
+     FROM products p
+     JOIN variants v ON v.id=p.source_variant_id
+     LEFT JOIN (SELECT variant_id,COALESCE(SUM(quantity),0) total FROM orders WHERE status=\'completed\' GROUP BY variant_id) sold ON sold.variant_id=v.id
+     ORDER BY p.sort_order,p.id'
 );
 $summaryStock = $supplierCatalog->variantStockMap(array_map(static fn (array $item): int => (int) $item['source_variant_id'], $summary));
 foreach ($summary as &$summaryItem) {

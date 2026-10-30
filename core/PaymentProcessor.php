@@ -153,22 +153,12 @@ final class PaymentProcessor
                     return false;
                 }
                 $db->execute("UPDATE orders SET status='cancelled',result_reason='expired',completed_at=NOW() WHERE id=?", [$order['id']]);
-                $this->outbox->enqueueRecipient(
-                    (int) $order['user_id'],
-                    'user',
-                    (int) $order['telegram_id'],
-                    (string) $order['language'],
-                    'order:' . $order['id'] . ':expired',
-                    'order_expired',
-                    [
-                        'order' => (string) $order['order_code'],
-                        'cleanup_request_type' => 'order',
-                        'cleanup_request_id' => (int) $order['id'],
-                    ]
-                );
                 return true;
             });
-            if ($didExpire) $expired++;
+            if ($didExpire) {
+                $expired++;
+                $this->outbox->cleanupDirect('order', (int) $row['id']);
+            }
         }
         return $expired;
     }
