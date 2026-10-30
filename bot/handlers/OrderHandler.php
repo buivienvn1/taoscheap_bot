@@ -67,19 +67,17 @@ final class OrderHandler
         $walletAmount = (string) $order['wallet_amount'];
         $bank = $this->vietQr->transferDetails();
         $qrUrl = $this->vietQr->imageUrl($paymentCode, (float) $bankAmount);
-        $content = '<blockquote><b>' . $lang->get('payment_title') . "</b></blockquote>\n\n"
-            . $lang->get('payment_product_line', ['product' => Helpers::escape($variant['product_name'])]) . "\n"
-            . $lang->get('payment_quantity_line', ['quantity' => $quantity]) . "\n"
-            . $lang->get('payment_unit_price_line', ['amount' => Helpers::money($unitPrice)]) . "\n"
-            . $lang->get('payment_total_line', ['amount' => Helpers::money($total)]) . "\n"
+        $content = $lang->get('payment_compact_item', [
+                'product' => Helpers::escape($variant['product_name']),
+                'quantity' => $quantity,
+            ]) . "\n"
             . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($walletAmount)]) . "\n" : '')
-            . $lang->get('payment_need_transfer_line', ['amount' => Helpers::money($bankAmount)]) . "\n"
+            . $lang->get('payment_compact_need_pay', ['amount' => Helpers::money($bankAmount)]) . "\n"
             . $lang->get('payment_bank_line', [
                 'bank' => Helpers::escape($bank['bank_id']),
                 'account' => Helpers::escape($bank['account_number']),
             ]) . "\n"
-            . $lang->get('payment_content_line', ['content' => Helpers::escape($paymentCode)]) . "\n\n"
-            . $lang->get('payment_instruction');
+            . $lang->get('payment_content_line', ['content' => Helpers::escape($paymentCode)]);
         $keyboard = (float) $walletAmount > 0
             ? [[['text' => $lang->get('cancel_order_button'), 'callback_data' => 'cancel_order:' . $order['id']]]]
             : [[['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId]]];
