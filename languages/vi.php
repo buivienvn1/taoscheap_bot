@@ -2,14 +2,14 @@
 
 return [
     'referral_title' => '🎁 Mời bạn & Kiếm tiền',
-    'referral_dashboard' => "🎁 <b>Mời bạn &amp; Kiếm tiền</b>\n\nMời bạn mua hàng, nhận thưởng VND.\n\nThưởng mỗi bạn: <b>:reward</b>\nĐã mời: :invited\nĐã thưởng: :rewarded\nTổng nhận: <b>:earned</b>\n\nLink mời:\n:link",
+    'referral_dashboard' => "🎁 <b>Mời bạn &amp; Kiếm tiền</b>\n\nMời bạn mua hàng, nhận thưởng VND.\n\nThưởng mỗi bạn: <b>:reward</b>\nĐã mời: :invited\nĐã thưởng: :rewarded\nTổng nhận: <b>:earned</b>\n\nLink mời:\n<code>:link</code>",
     'referral_how' => '⭐️ <b>Cách thức hoạt động</b>',
     'referral_instructions_default' => "1. Chia sẻ link cho bạn mới.\n2. Bạn tham gia kênh và mua hàng.\n3. Nhận {reward} khi đơn hoàn thành và bạn vẫn ở trong kênh.\n\nMỗi bạn mới được tính thưởng một lần.",
     'referral_share' => '🔗 Chia sẻ',
     'referral_refresh' => '🔄 Cập nhật',
-    'referral_share_message' => 'Mua sản phẩm số tại shop qua link này.',
+    'referral_share_message' => 'Tham gia và xác minh để nhận thưởng',
     'referral_paused' => 'Chương trình giới thiệu đang tạm dừng.',
-    'referral_gate' => 'Tham gia kênh rồi bấm Kiểm tra để mở cửa hàng.',
+    'referral_gate' => '👋 Xin chào :name! Hãy tham gia cả hai nhóm bắt buộc để truy cập bot.',
     'referral_join' => '📣 Tham gia kênh',
     'referral_check' => '✅ Kiểm tra',
     'referral_check_wait' => 'Vui lòng đợi 5 giây rồi thử lại.',

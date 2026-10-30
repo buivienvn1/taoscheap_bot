@@ -37,9 +37,9 @@ final class ReferralHandler
         ]);
     }
 
-    public function gate(int $chatId, ?int $messageId, Language $lang, ?string $notice = null): void
+    public function gate(int $chatId, ?int $messageId, Language $lang, string $fullName, ?string $notice = null): void
     {
-        $text = $lang->get('referral_gate');
+        $text = $lang->get('referral_gate', ['name' => Helpers::escape($fullName)]);
         if ($notice !== null) $text .= "\n\n" . $lang->get($notice);
         $keyboard = [
             [['text' => $lang->get('referral_join'), 'url' => $this->referrals->config()['channel_url']]],

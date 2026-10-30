@@ -48,7 +48,7 @@ final class Router
         $user = $this->upsertUser($message['from'], $code);
         $lang = $this->language($user['language'] ?? 'vi');
         if ($this->referrals->needsGate((int) $user['id'])) {
-            $this->referralHandler->gate((int) $message['chat']['id'], null, $lang);
+            $this->referralHandler->gate((int) $message['chat']['id'], null, $lang, $this->fullName($user));
             return;
         }
         if ($text === '/start' || str_starts_with($text, '/start ')) {
@@ -102,7 +102,7 @@ final class Router
             $notice = null;
             if ($data === 'referral_check') $notice = $this->referrals->checkGate((int) $user['id'], (int) $user['telegram_id']);
             if ($this->referrals->needsGate((int) $user['id'])) {
-                $this->referralHandler->gate($chatId, $messageId, $lang, $notice);
+                $this->referralHandler->gate($chatId, $messageId, $lang, $this->fullName($user), $notice);
                 return;
             }
             $this->start->show($chatId, $lang, $messageId);
@@ -185,6 +185,12 @@ final class Router
     private function findUser(array $from): array
     {
         return $this->upsertUser($from);
+    }
+
+    private function fullName(array $user): string
+    {
+        $fullName = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
+        return $fullName !== '' ? $fullName : (string) ($user['username'] ?? '');
     }
 
     private function upsertUser(array $from, string $referralCode = ''): array

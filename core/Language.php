@@ -21,11 +21,12 @@ final class Language
     public function get(string $key, array $replace = []): string
     {
         $message = $this->messages[$key] ?? $key;
+        $placeholders = [];
 
         foreach ($replace as $name => $value) {
-            $message = str_replace(':' . $name, (string) $value, $message);
+            $placeholders[':' . $name] = (string) $value;
         }
 
-        return $message;
+        return strtr($message, $placeholders);
     }
 }

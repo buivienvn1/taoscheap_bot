@@ -44,5 +44,13 @@ foreach ([$vi, $en] as $lang) {
     $assert(ReferralService::validHtml($dashboard), 'dashboard HTML');
     $assert(simplexml_load_string('<root>' . $dashboard . '</root>') !== false, 'dashboard HTML entities escaped');
     $assert(!str_contains($dashboard, ':reward'), 'dashboard placeholders filled');
+    $assert(!str_contains($dashboard, '500 VNDed'), 'overlapping placeholders replaced safely');
+    $assert(str_contains($dashboard, '<code>https://t.me/test?start=ABC123DEF456</code>'), 'invite link is copyable');
 }
+$assert(str_contains($vi->get('referral_dashboard', ['reward' => '200 VND', 'invited' => 0, 'rewarded' => 0, 'earned' => '0 VND', 'link' => 'link']), 'Đã thưởng: 0'), 'Vietnamese rewarded count');
+$assert(str_contains($en->get('referral_dashboard', ['reward' => '200 VND', 'invited' => 0, 'rewarded' => 0, 'earned' => '0 VND', 'link' => 'link']), 'Rewarded: 0'), 'English rewarded count');
+$assert($vi->get('referral_share_message') === 'Tham gia và xác minh để nhận thưởng', 'Vietnamese share message');
+$assert($en->get('referral_share_message') === 'Join and verify to earn rewards', 'English share message');
+$assert(str_contains($vi->get('referral_gate', ['name' => 'An & Bình']), 'An & Bình'), 'Vietnamese personalized gate');
+$assert(str_contains($en->get('referral_gate', ['name' => 'An & Bình']), 'An & Bình'), 'English personalized gate');
 echo "OK: {$count} referral assertions\n";

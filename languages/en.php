@@ -2,14 +2,14 @@
 
 return [
     'referral_title' => '🎁 Refer & Earn',
-    'referral_dashboard' => "🎁 <b>Refer &amp; Earn</b>\n\nInvite friends to shop and earn VND.\n\nReward per friend: <b>:reward</b>\nInvited: :invited\nRewarded: :rewarded\nTotal earned: <b>:earned</b>\n\nYour invite link:\n:link",
+    'referral_dashboard' => "🎁 <b>Refer &amp; Earn</b>\n\nInvite friends to shop and earn VND.\n\nReward per friend: <b>:reward</b>\nInvited: :invited\nRewarded: :rewarded\nTotal earned: <b>:earned</b>\n\nYour invite link:\n<code>:link</code>",
     'referral_how' => '⭐️ <b>How it works</b>',
     'referral_instructions_default' => "1. Share your link with a new friend.\n2. Your friend joins the channel and makes a purchase.\n3. Earn {reward} when the order is completed and your friend is still a channel member.\n\nEach new friend qualifies once.",
     'referral_share' => '🔗 Share',
     'referral_refresh' => '🔄 Refresh',
-    'referral_share_message' => 'Shop for digital products using this link.',
+    'referral_share_message' => 'Join and verify to earn rewards',
     'referral_paused' => 'The referral program is paused.',
-    'referral_gate' => 'Join the channel, then tap Check to open the shop.',
+    'referral_gate' => '👋 Hey! :name Please join both required chats to access this bot.',
     'referral_join' => '📣 Join channel',
     'referral_check' => '✅ Check',
     'referral_check_wait' => 'Please wait 5 seconds and try again.',
