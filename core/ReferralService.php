@@ -242,10 +242,25 @@ final class ReferralService
             try {
                 $bot = $this->telegram->getMe();
                 $member = $this->telegram->getChatMember($config['channel_id'], (int) $bot['id']);
-                if (!in_array($member['status'] ?? '', ['administrator', 'creator'], true)) throw new RuntimeException('not_admin');
+                if (!in_array($member['status'] ?? '', ['administrator', 'creator'], true)) {
+                    throw new InvalidArgumentException('referral_channel_bot_not_admin');
+                }
                 $config['bot_username'] = (string) $bot['username'];
-            } catch (Throwable) {
-                throw new InvalidArgumentException('referral_channel_error');
+            } catch (InvalidArgumentException $error) {
+                throw $error;
+            } catch (Throwable $error) {
+                $message = strtolower($error->getMessage());
+                $notAccessible = str_contains($message, 'chat not found')
+                    || str_contains($message, 'bot is not a member')
+                    || str_contains($message, 'user not found');
+                error_log(sprintf(
+                    'Referral channel validation failed [channel=%s error=%s]',
+                    $config['channel_id'],
+                    $error->getMessage()
+                ));
+                throw new InvalidArgumentException($notAccessible
+                    ? 'referral_channel_not_accessible'
+                    : 'referral_channel_error');
             }
         }
         $this->db->transaction(function () use ($config): void {
