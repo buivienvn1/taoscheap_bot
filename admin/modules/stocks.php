@@ -273,10 +273,10 @@ $summary = $db->fetchAll(
 $summaryStock = $supplierCatalog->variantStockMap(array_map(static fn (array $item): int => (int) $item['source_variant_id'], $summary));
 foreach ($summary as &$summaryItem) {
     $stock = $summaryStock[(int) $summaryItem['source_variant_id']];
-    $summaryItem['manual_available'] = $stock['manual_available'];
-    $summaryItem['api_available'] = $stock['api_available'];
+    $summaryItem['manual_available'] = (int) $stock['manual_available'];
+    $summaryItem['api_available'] = (int) $stock['api_available'];
     $summaryItem['api_provider_name'] = $stock['api_provider_name'];
-    $summaryItem['available'] = $stock['available'];
+    $summaryItem['available'] = $summaryItem['manual_available'] + $summaryItem['api_available'];
 }
 unset($summaryItem);
 
@@ -349,10 +349,10 @@ $stockRows = $db->fetchAll($sql, $params);
 <div class="card">
     <div class="card-heading"><h3><?= e($stockText('admin_stock_overview')) ?></h3><div class="actions"><button type="button" data-open-stock-modal="product" data-product-id="0"><?= e($stockText('admin_stock_add_product')) ?></button><form method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="refresh_inventory"><button type="submit" class="secondary"><?= e($stockText('admin_stock_refresh_inventory')) ?></button></form></div></div>
     <div class="table-wrap"><table>
-        <thead><tr><th><?= e($stockText('admin_stock_product')) ?></th><th><?= e($stockText('admin_stock_product_price_column')) ?></th><th><?= e($stockText('admin_stock_product_total_column')) ?></th><th><?= e($stockText('admin_stock_product_orders_column')) ?></th><th><?= e($stockText('admin_stock_product_actions')) ?></th></tr></thead>
+        <thead><tr><th><?= e($stockText('admin_stock_product')) ?></th><th><?= e($stockText('admin_stock_product_price_column')) ?></th><th><?= e($stockText('admin_stock_product_stock_column')) ?></th><th><?= e($stockText('admin_stock_product_orders_column')) ?></th><th><?= e($stockText('admin_stock_product_actions')) ?></th></tr></thead>
         <tbody><?php foreach ($summary as $item): ?><tr data-product-row="<?= e($item['id']) ?>">
             <td><strong><?= e($item['name']) ?></strong><br><span class="badge <?= (int) $item['status'] === 1 ? 'success' : 'muted' ?>"><?= e($stockText((int) $item['status'] === 1 ? 'admin_stock_product_status_visible' : 'admin_stock_product_status_hidden')) ?></span></td>
-            <td><?= e(Helpers::money($item['price'] ?? 0)) ?></td><td><strong><?= e($item['api_available']) ?></strong><?php if ($item['api_provider_name'] !== null): ?><br><small><?= e($item['api_provider_name']) ?></small><?php endif; ?></td><td><?= e($item['order_count']) ?><br><small><?= e($stockText('admin_stock_sold_with_fake', ['sold_label' => $stockText('admin_stock_sold'), 'sold' => $item['sold'], 'fake_sold' => $item['fake_sold']])) ?></small></td>
+            <td><?= e(Helpers::money($item['price'] ?? 0)) ?></td><td><strong><?= e($item['available']) ?></strong> <small>(<?= e($stockText('admin_stock_api_label')) ?>: <?= e($item['api_available']) ?>)</small><?php if ($item['api_provider_name'] !== null): ?><br><small><?= e($item['api_provider_name']) ?></small><?php endif; ?></td><td><?= e($item['order_count']) ?><br><small><?= e($stockText('admin_stock_sold_with_fake', ['sold_label' => $stockText('admin_stock_sold'), 'sold' => $item['sold'], 'fake_sold' => $item['fake_sold']])) ?></small></td>
             <td><div class="actions"><button type="button" data-open-stock-modal="product" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_product_open_edit')) ?></button><button type="button" class="secondary" data-open-stock-modal="import" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_btn_import')) ?></button><button type="button" class="secondary" data-open-stock-modal="source" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_btn_config_api')) ?></button><form method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="toggle_product"><input type="hidden" name="id" value="<?= e($item['id']) ?>"><button type="submit" class="secondary"><?= e($stockText('admin_stock_product_toggle')) ?></button></form><form method="post" onsubmit="return confirm('<?= e($stockText('admin_stock_product_delete_confirm')) ?>')"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="delete_product"><input type="hidden" name="id" value="<?= e($item['id']) ?>"><button type="submit" class="danger"><?= e($stockText('admin_stock_product_delete')) ?></button></form></div></td>
         </tr><?php endforeach; ?><?php if ($summary === []): ?><tr><td colspan="5"><?= e($stockText('admin_stock_empty')) ?></td></tr><?php endif; ?></tbody>
     </table></div>
