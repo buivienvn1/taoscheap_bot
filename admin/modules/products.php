@@ -133,7 +133,7 @@ $form = $editing ?? [];
         <div class="form-grid">
             <div><label for="product_price">Giá</label><input id="product_price" name="price" type="number" min="0" step="0.01" value="<?= e($form['price'] ?? '') ?>" required></div>
             <div><label for="sort_order">Thứ tự</label><input id="sort_order" name="sort_order" type="number" value="<?= e($form['sort_order'] ?? 0) ?>"></div>
-            <div><label for="fake_sold"><?= e(Language::get('admin_product_fake_sold')) ?></label><input id="fake_sold" name="fake_sold" type="number" min="0" step="1" value="<?= e($form['fake_sold'] ?? 0) ?>" title="<?= e(Language::get('admin_product_fake_sold_help')) ?>"></div>
+            <div><label for="fake_sold"><?= e($adminLanguage->get('admin_product_fake_sold')) ?></label><input id="fake_sold" name="fake_sold" type="number" min="0" step="1" value="<?= e($form['fake_sold'] ?? 0) ?>" title="<?= e($adminLanguage->get('admin_product_fake_sold_help')) ?>"></div>
         </div>
         <label class="inline-check"><input type="checkbox" name="status" <?= !isset($form['status']) || (int) $form['status'] === 1 ? 'checked' : '' ?>> Hiển thị sản phẩm</label>
         <div class="actions">
@@ -145,7 +145,7 @@ $form = $editing ?? [];
 
 <div class="card table-wrap">
     <table>
-        <thead><tr><th>Sản phẩm</th><th>Giá</th><th>Kho tay</th><th>Đơn</th><th><?= e(Language::get('admin_product_fake_sold')) ?></th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+        <thead><tr><th>Sản phẩm</th><th>Giá</th><th>Kho tay</th><th>Đơn</th><th><?= e($adminLanguage->get('admin_product_fake_sold')) ?></th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
         <tbody>
         <?php foreach ($products as $product): ?>
             <tr>
