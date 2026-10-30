@@ -111,7 +111,7 @@ final class SupplierCatalogService
 
         $sources = $this->db->fetchAll(
             'SELECT ss.variant_id,ss.source_type,ss.provider_key,ss.remote_product_code,ss.priority,ss.status,
-                    sp.stock,sp.unit_price,sp.is_active,sp.is_available
+                    sp.stock,sp.unit_price,sp.currency,sp.is_active,sp.is_available
              FROM supplier_sources ss
              LEFT JOIN supplier_products sp ON sp.provider_key=ss.provider_key AND sp.remote_product_code=ss.remote_product_code'
             . $filter . ' ORDER BY ss.variant_id,ss.priority,ss.id',
@@ -123,16 +123,18 @@ final class SupplierCatalogService
             . ' GROUP BY variant_id',
             $variantIds
         );
-        $balanceRows = $this->db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT') ORDER BY currency='USDT'");
+        $balanceRows = $this->db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT','VND')");
 
         $manualByVariant = [];
         foreach ($manualRows as $row) $manualByVariant[(int) $row['variant_id']] = (int) $row['available'];
         $balances = [];
         foreach ($balanceRows as $row) {
             $providerKey = (string) $row['provider_key'];
-            if (strtoupper((string) $row['currency']) === 'USDT' || !isset($balances[$providerKey])) {
-                $balances[$providerKey] = (float) $row['amount'];
+            $curr = strtoupper((string) $row['currency']);
+            if ($curr === 'USD') {
+                $curr = 'USDT';
             }
+            $balances[$providerKey][$curr] = (float) $row['amount'];
         }
 
         $providerNames = $this->registry->names();
@@ -156,7 +158,12 @@ final class SupplierCatalogService
             $result[$variantId]['has_api'] = true;
             if ($result[$variantId]['api_available'] > 0) continue;
             $providerKey = (string) ($source['provider_key'] ?? '');
-            $effective = $this->effectiveStock($source, $balances[$providerKey] ?? 0.0);
+            $sourceCurrency = strtoupper((string) ($source['currency'] ?? 'USDT'));
+            if ($sourceCurrency === 'USD') {
+                $sourceCurrency = 'USDT';
+            }
+            $balance = (float) ($balances[$providerKey][$sourceCurrency] ?? 0.0);
+            $effective = $this->effectiveStock($source, $balance);
             if ($effective <= 0) continue;
             $result[$variantId]['api_available'] = $effective;
             $result[$variantId]['api_provider_key'] = $providerKey;
@@ -253,8 +260,13 @@ final class SupplierCatalogService
                     $seen[] = $code;
                     $currency = strtoupper((string) ($product['currency'] ?? '')) ?: null;
                     $price = is_numeric($product['unit_price'] ?? null) ? (float) $product['unit_price'] : null;
-                    $rate = $currency !== null && isset($rates[$currency]) ? $rates[$currency] : null;
-                    $priceVnd = $price !== null && $rate !== null ? round($price * $rate, 2) : null;
+                    if ($currency === 'VND') {
+                        $rate = 1.0;
+                        $priceVnd = $price !== null ? round($price, 2) : null;
+                    } else {
+                        $rate = $currency !== null && isset($rates[$currency]) ? $rates[$currency] : null;
+                        $priceVnd = $price !== null && $rate !== null ? round($price * $rate, 2) : null;
+                    }
                     $raw = json_encode($product['raw'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                     $db->execute(
                         'INSERT INTO supplier_products(provider_key,remote_product_code,product_name,stock,is_available,is_active,unit_price,currency,price_kind,price_vnd,exchange_rate,max_quantity,raw_payload,fetched_at) VALUES(?,?,?,?,?,1,?,?,?,?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE product_name=VALUES(product_name),stock=VALUES(stock),is_available=VALUES(is_available),is_active=1,unit_price=VALUES(unit_price),currency=VALUES(currency),price_kind=VALUES(price_kind),price_vnd=VALUES(price_vnd),exchange_rate=VALUES(exchange_rate),max_quantity=VALUES(max_quantity),raw_payload=VALUES(raw_payload),fetched_at=VALUES(fetched_at)',

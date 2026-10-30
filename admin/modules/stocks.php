@@ -175,21 +175,27 @@ $sourcesByVariant = [];
 foreach ($sourceRows as $sourceRow) $sourcesByVariant[(int) $sourceRow['variant_id']][] = $sourceRow;
 $providerNames = $supplierRegistry->names();
 $remoteProducts = $db->fetchAll('SELECT provider_key,remote_product_code,product_name,stock,is_available,is_active,unit_price,currency FROM supplier_products WHERE is_active=1 ORDER BY provider_key,product_name');
-$balanceRows = $db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT') ORDER BY currency='USDT'");
+$balanceRows = $db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT','VND')");
 $balancesByProvider = [];
 foreach ($balanceRows as $balanceRow) {
     $providerKey = (string) $balanceRow['provider_key'];
     $currency = strtoupper((string) $balanceRow['currency']);
-    if ($currency === 'USDT' || !isset($balancesByProvider[$providerKey])) {
-        $balancesByProvider[$providerKey] = (float) $balanceRow['amount'];
+    if ($currency === 'USD') {
+        $currency = 'USDT';
     }
+    $balancesByProvider[$providerKey][$currency] = (float) $balanceRow['amount'];
 }
 $remoteProductsByProvider = [];
 $remoteProductsByKey = [];
 foreach ($remoteProducts as $remoteProduct) {
     $providerKey = (string) $remoteProduct['provider_key'];
     $remoteCode = (string) $remoteProduct['remote_product_code'];
-    $remoteProduct['effective_stock'] = $supplierCatalog->effectiveStock($remoteProduct, $balancesByProvider[$providerKey] ?? 0.0);
+    $curr = strtoupper((string) ($remoteProduct['currency'] ?? 'USDT'));
+    if ($curr === 'USD') {
+        $curr = 'USDT';
+    }
+    $balance = (float) ($balancesByProvider[$providerKey][$curr] ?? 0.0);
+    $remoteProduct['effective_stock'] = $supplierCatalog->effectiveStock($remoteProduct, $balance);
     $remoteProductsByProvider[$providerKey][] = $remoteProduct;
     $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
@@ -274,7 +280,8 @@ $stockRows = $db->fetchAll($sql, $params);
         var selected = keepSelection ? productSelect.dataset.selected : '';
         productSelect.replaceChildren(new Option(emptyLabel, ''));
         (products[providerSelect.value] || []).forEach(function (product) {
-            var label = product.product_name + ' — ' + product.effective_stock + ' — ' + (product.unit_price || '—') + ' USDT';
+            var currency = product.currency || 'USDT';
+            var label = product.product_name + ' — ' + product.effective_stock + ' — ' + (product.unit_price || '—') + ' ' + currency;
             productSelect.add(new Option(label, product.remote_product_code, false, product.remote_product_code === selected));
         });
         if (selected && !Array.from(productSelect.options).some(function (option) { return option.value === selected; })) {

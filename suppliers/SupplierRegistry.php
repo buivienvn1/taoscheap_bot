@@ -11,6 +11,7 @@ final class SupplierRegistry
     {
         $this->register(new SandromaniaSupplier((array) ($config['sandromania'] ?? [])));
         $this->register(new CupponHubSupplier((array) ($config['cupponhub'] ?? [])));
+        $this->register(new TunVnPreHubSupplier((array) ($config['tunvn_prehub'] ?? [])));
     }
 
     public function get(string $key): ?SupplierInterface

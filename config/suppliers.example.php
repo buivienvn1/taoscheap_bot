@@ -20,4 +20,13 @@ return [
         'connect_timeout' => 5,
         'timeout' => 30,
     ],
+    'tunvn_prehub' => [
+        'enabled' => false,
+        'name' => '@TunVN_PreHub_bot',
+        'base_url' => 'https://tunvnmmo.duckdns.org',
+        'api_key' => '',
+        'currency' => 'vnd',
+        'connect_timeout' => 5,
+        'timeout' => 30,
+    ],
 ];
