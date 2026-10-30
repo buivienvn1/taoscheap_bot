@@ -95,6 +95,97 @@ final class SupplierCatalogService
         return min($supplierStock, max(0, (int) floor($balance / $price)));
     }
 
+    /**
+     * @param list<int> $variantIds
+     * @return array<int, array{manual_available: int, api_available: int, api_provider_key: ?string, api_provider_name: ?string, available: int, has_api: bool}>
+     */
+    public function variantStockMap(array $variantIds = []): array
+    {
+        $variantIds = array_values(array_unique(array_filter(array_map('intval', $variantIds), static fn (int $id): bool => $id > 0)));
+        $filter = '';
+        $params = [];
+        if ($variantIds !== []) {
+            $filter = ' WHERE ss.variant_id IN (' . implode(',', array_fill(0, count($variantIds), '?')) . ')';
+            $params = $variantIds;
+        }
+
+        $sources = $this->db->fetchAll(
+            'SELECT ss.variant_id,ss.source_type,ss.provider_key,ss.remote_product_code,ss.priority,ss.status,
+                    sp.stock,sp.unit_price,sp.is_active,sp.is_available
+             FROM supplier_sources ss
+             LEFT JOIN supplier_products sp ON sp.provider_key=ss.provider_key AND sp.remote_product_code=ss.remote_product_code'
+            . $filter . ' ORDER BY ss.variant_id,ss.priority,ss.id',
+            $params
+        );
+        $manualRows = $this->db->fetchAll(
+            'SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0'
+            . ($variantIds === [] ? '' : ' AND variant_id IN (' . implode(',', array_fill(0, count($variantIds), '?')) . ')')
+            . ' GROUP BY variant_id',
+            $variantIds
+        );
+        $balanceRows = $this->db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT') ORDER BY currency='USDT'");
+
+        $manualByVariant = [];
+        foreach ($manualRows as $row) $manualByVariant[(int) $row['variant_id']] = (int) $row['available'];
+        $balances = [];
+        foreach ($balanceRows as $row) {
+            $providerKey = (string) $row['provider_key'];
+            if (strtoupper((string) $row['currency']) === 'USDT' || !isset($balances[$providerKey])) {
+                $balances[$providerKey] = (float) $row['amount'];
+            }
+        }
+
+        $providerNames = $this->registry->names();
+        $result = [];
+        foreach ($sources as $source) {
+            $variantId = (int) $source['variant_id'];
+            $result[$variantId] ??= [
+                'manual_available' => 0,
+                'api_available' => 0,
+                'api_provider_key' => null,
+                'api_provider_name' => null,
+                'available' => 0,
+                'has_api' => false,
+            ];
+            if ((int) $source['status'] !== 1) continue;
+            if ($source['source_type'] === 'manual') {
+                $result[$variantId]['manual_available'] = $manualByVariant[$variantId] ?? 0;
+                continue;
+            }
+            if ($source['source_type'] !== 'api') continue;
+            $result[$variantId]['has_api'] = true;
+            if ($result[$variantId]['api_available'] > 0) continue;
+            $providerKey = (string) ($source['provider_key'] ?? '');
+            $effective = $this->effectiveStock($source, $balances[$providerKey] ?? 0.0);
+            if ($effective <= 0) continue;
+            $result[$variantId]['api_available'] = $effective;
+            $result[$variantId]['api_provider_key'] = $providerKey;
+            $result[$variantId]['api_provider_name'] = $providerNames[$providerKey] ?? $providerKey;
+        }
+        foreach ($result as &$stock) {
+            $stock['available'] = $stock['manual_available'] + $stock['api_available'];
+        }
+        unset($stock);
+
+        foreach ($variantIds as $variantId) {
+            $result[$variantId] ??= [
+                'manual_available' => 0,
+                'api_available' => 0,
+                'api_provider_key' => null,
+                'api_provider_name' => null,
+                'available' => 0,
+                'has_api' => false,
+            ];
+        }
+        return $result;
+    }
+
+    /** @return array{manual_available: int, api_available: int, api_provider_key: ?string, api_provider_name: ?string, available: int, has_api: bool} */
+    public function variantStock(int $variantId): array
+    {
+        return $this->variantStockMap([$variantId])[$variantId];
+    }
+
     /** @return array{success: bool, message: string} */
     public function syncBalance(string $providerKey): array
     {

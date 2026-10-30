@@ -18,6 +18,7 @@ return [
     'product_detail' => 'PRODUCT DETAILS',
     'empty_products' => 'No products available.',
     'product_stock' => 'Stock: :count',
+    'product_item_sub' => ' ╰ :price - Stock: :count',
     'product_list_hint' => 'Please select a button below.',
     'name' => 'Name',
     'features' => 'Highlights 🌟',

@@ -18,6 +18,7 @@ return [
     'product_detail' => 'CHI TIẾT SẢN PHẨM',
     'empty_products' => 'Chưa có sản phẩm.',
     'product_stock' => 'Kho: :count',
+    'product_item_sub' => ' ╰ :price - Còn: :count',
     'product_list_hint' => 'Vui lòng chọn nút bên dưới.',
     'name' => 'Tên',
     'features' => 'Tính năng nổi bật 🌟',

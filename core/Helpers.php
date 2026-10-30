@@ -9,6 +9,18 @@ final class Helpers
         return number_format((float) $amount, 0, ',', '.') . 'đ';
     }
 
+    public static function formatDecimal(float|int|string $value, int $maxDecimals = 6): string
+    {
+        $formatted = number_format((float) $value, max(0, $maxDecimals), '.', ',');
+        return rtrim(rtrim($formatted, '0'), '.');
+    }
+
+    public static function cleanNumber(float|int|string $value, int $maxDecimals = 8): string
+    {
+        $formatted = number_format((float) $value, max(0, $maxDecimals), '.', '');
+        return rtrim(rtrim($formatted, '0'), '.');
+    }
+
     public static function escape(?string $text): string
     {
         return htmlspecialchars($text ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

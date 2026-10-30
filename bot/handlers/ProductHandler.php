@@ -6,28 +6,33 @@ final class ProductHandler
 {
     private const MAX_QUANTITY = 100;
 
-    public function __construct(private Database $db, private Telegram $telegram)
-    {
+    public function __construct(
+        private Database $db,
+        private Telegram $telegram,
+        private SupplierCatalogService $supplierCatalog
+    ) {
     }
 
     public function list(int $chatId, int $messageId, Language $lang): void
     {
         $products = $this->db->fetchAll(
-            "SELECT p.id, p.name,
-                    CASE WHEN COALESCE(src.has_api,0)=1 THEN 100 ELSE COALESCE(s.available,0) END stock
+            "SELECT p.id,p.name,v.id variant_id,v.price
              FROM products p
-             JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
-             LEFT JOIN (SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0 GROUP BY variant_id) s ON s.variant_id=v.id
-             LEFT JOIN (SELECT variant_id,MAX(source_type='api' AND provider_key IS NOT NULL AND remote_product_code IS NOT NULL) has_api FROM supplier_sources WHERE status=1 GROUP BY variant_id) src ON src.variant_id=v.id
-             WHERE p.status = 1
-             ORDER BY p.sort_order, p.id LIMIT 50"
+             JOIN variants v ON v.id=p.source_variant_id AND v.status=1
+             WHERE p.status=1
+             ORDER BY p.sort_order,p.id LIMIT 50"
         );
+        $stockMap = $this->supplierCatalog->variantStockMap(array_map(static fn (array $product): int => (int) $product['variant_id'], $products));
         $text = '<blockquote><b>' . $lang->get('products_title') . "</b></blockquote>\n\n";
         $buttons = [];
         foreach ($products as $index => $product) {
             $number = $index + 1;
-            $text .= $number . '. <b>' . Helpers::escape($product['name']) . '</b> - '
-                . $lang->get('product_stock', ['count' => (int) $product['stock']]) . "\n";
+            $stock = $stockMap[(int) $product['variant_id']]['available'];
+            $text .= $number . '. <b>' . Helpers::escape($product['name']) . "</b>\n"
+                . $lang->get('product_item_sub', [
+                    'price' => Helpers::money($product['price']),
+                    'count' => $stock,
+                ]) . "\n\n";
             $buttons[] = ['text' => (string) $number, 'callback_data' => 'product:' . $product['id']];
         }
         $text .= $products === [] ? $lang->get('empty_products') : "\n<i>" . $lang->get('product_list_hint') . '</i>';
@@ -89,20 +94,18 @@ final class ProductHandler
     public function subscribeToStock(int $chatId, int $messageId, int $userId, int $productId, Language $lang): void
     {
         $product = $this->db->fetch(
-            "SELECT p.id,COALESCE(src.has_api,0) has_api,
-                    CASE WHEN COALESCE(src.has_api,0)=1 THEN 100 ELSE COALESCE(stock.available,0) END stock
+            "SELECT p.id,v.id variant_id
              FROM products p
-             JOIN variants v ON v.id = p.source_variant_id AND v.status = 1
-             LEFT JOIN (SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0 GROUP BY variant_id) stock ON stock.variant_id=v.id
-             LEFT JOIN (SELECT variant_id,MAX(source_type='api' AND provider_key IS NOT NULL AND remote_product_code IS NOT NULL) has_api FROM supplier_sources WHERE status=1 GROUP BY variant_id) src ON src.variant_id=v.id
-             WHERE p.id = ? AND p.status = 1",
+             JOIN variants v ON v.id=p.source_variant_id AND v.status=1
+             WHERE p.id=? AND p.status=1",
             [$productId]
         );
         if ($product === null) {
             $this->list($chatId, $messageId, $lang);
             return;
         }
-        if ((int) $product['stock'] === 0 && !(int) $product['has_api']) {
+        $stock = $this->supplierCatalog->variantStock((int) $product['variant_id']);
+        if ($stock['available'] === 0) {
             $this->db->execute(
                 "INSERT INTO stock_subscriptions(user_id,product_id,status,notified_at)
                  VALUES(?,?,'pending',NULL)
@@ -143,22 +146,19 @@ final class ProductHandler
         Language $lang
     ): void {
         $product = $this->db->fetch(
-            "SELECT p.id,p.name,p.description,p.features,v.id variant_id,v.price,COALESCE(src.has_api,0) has_api,
-                    CASE WHEN COALESCE(src.has_api,0)=1 THEN 100 ELSE COALESCE(stock.available,0) END stock,
-                    COALESCE(sold.total,0) sold
+            "SELECT p.id,p.name,p.description,p.features,v.id variant_id,v.price,COALESCE(sold.total,0) sold
              FROM products p
              JOIN variants v ON v.id=p.source_variant_id AND v.status=1
-             LEFT JOIN (SELECT variant_id,COUNT(*) available FROM stocks WHERE is_sold=0 GROUP BY variant_id) stock ON stock.variant_id=v.id
              LEFT JOIN (SELECT variant_id,COUNT(*) total FROM stocks WHERE is_sold=1 GROUP BY variant_id) sold ON sold.variant_id=v.id
-             LEFT JOIN (SELECT variant_id,MAX(source_type='api' AND provider_key IS NOT NULL AND remote_product_code IS NOT NULL) has_api FROM supplier_sources WHERE status=1 GROUP BY variant_id) src ON src.variant_id=v.id
-             WHERE p.id = ? AND p.status = 1",
+             WHERE p.id=? AND p.status=1",
             [$productId]
         );
         if ($product === null) {
             $this->list($chatId, $messageId, $lang);
             return;
         }
-        $stock = (int) $product['stock'];
+        $stockInfo = $this->supplierCatalog->variantStock((int) $product['variant_id']);
+        $stock = $stockInfo['available'];
         $displayQuantity = $stock > 0 ? min($quantity, $stock) : 1;
         if ($displayQuantity !== $quantity) {
             $this->db->execute(
@@ -202,7 +202,7 @@ final class ProductHandler
                 'text' => $lang->get('checkout'),
                 'callback_data' => 'checkout:' . $productId . ':' . $version,
             ]];
-        } elseif (!(int) $product['has_api']) {
+        } else {
             $subscription = $this->db->fetch(
                 "SELECT id FROM stock_subscriptions WHERE user_id=? AND product_id=? AND status='pending'",
                 [$userId, $productId]

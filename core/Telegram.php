@@ -37,7 +37,14 @@ final class Telegram
                 ['message_id' => $messageId]
             ));
         } catch (RuntimeException $error) {
-            if (!str_contains($error->getMessage(), 'there is no text in the message to edit')) {
+            $message = strtolower($error->getMessage());
+            if (str_contains($message, 'message is not modified')) {
+                return ['ok' => true, 'result' => ['message_id' => $messageId]];
+            }
+            $canFallback = str_contains($message, 'there is no text in the message to edit')
+                || str_contains($message, 'message to edit not found')
+                || str_contains($message, "message can't be edited");
+            if (!$canFallback) {
                 throw $error;
             }
         }

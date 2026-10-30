@@ -194,33 +194,17 @@ foreach ($remoteProducts as $remoteProduct) {
     $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
 $summary = $db->fetchAll(
-    'SELECT p.id,p.name,p.source_variant_id,COALESCE(SUM(s.is_sold=0),0) manual_available,COALESCE(SUM(s.is_sold=1),0) sold
+    'SELECT p.id,p.name,p.source_variant_id,COALESCE(SUM(s.is_sold=1),0) sold
      FROM products p JOIN variants v ON v.id=p.source_variant_id LEFT JOIN stocks s ON s.variant_id=v.id
      GROUP BY p.id,p.name,p.source_variant_id ORDER BY p.sort_order,p.id'
 );
+$summaryStock = $supplierCatalog->variantStockMap(array_map(static fn (array $item): int => (int) $item['source_variant_id'], $summary));
 foreach ($summary as &$summaryItem) {
-    $sources = $sourcesByVariant[(int) $summaryItem['source_variant_id']] ?? [];
-    $manualEnabled = false;
-    $summaryItem['api_available'] = 0;
-    $summaryItem['api_provider_name'] = null;
-
-    foreach ($sources as $source) {
-        if ($source['source_type'] === 'manual' && (int) $source['status'] === 1) {
-            $manualEnabled = true;
-            continue;
-        }
-        if ($source['source_type'] !== 'api' || (int) $source['status'] !== 1) continue;
-
-        $remote = $remoteProductsByKey[(string) $source['provider_key'] . "\0" . (string) $source['remote_product_code']] ?? null;
-        if ($remote === null || (int) $remote['effective_stock'] <= 0) continue;
-
-        $summaryItem['api_available'] = (int) $remote['effective_stock'];
-        $summaryItem['api_provider_name'] = $providerNames[(string) $source['provider_key']] ?? (string) $source['provider_key'];
-        break;
-    }
-
-    $summaryItem['manual_available'] = $manualEnabled ? (int) $summaryItem['manual_available'] : 0;
-    $summaryItem['available'] = (int) $summaryItem['manual_available'] + (int) $summaryItem['api_available'];
+    $stock = $summaryStock[(int) $summaryItem['source_variant_id']];
+    $summaryItem['manual_available'] = $stock['manual_available'];
+    $summaryItem['api_available'] = $stock['api_available'];
+    $summaryItem['api_provider_name'] = $stock['api_provider_name'];
+    $summaryItem['available'] = $stock['available'];
 }
 unset($summaryItem);
 

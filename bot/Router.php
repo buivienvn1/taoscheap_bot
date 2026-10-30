@@ -12,11 +12,16 @@ final class Router
     private OrderHandler $orders;
     private array $languages;
 
-    public function __construct(private Database $db, private Telegram $telegram, VietQR $vietQr, array $app)
-    {
+    public function __construct(
+        private Database $db,
+        private Telegram $telegram,
+        VietQR $vietQr,
+        array $app,
+        SupplierCatalogService $supplierCatalog
+    ) {
         global $stockFulfillment;
         $this->start = new StartHandler($db, $telegram);
-        $this->products = new ProductHandler($db, $telegram);
+        $this->products = new ProductHandler($db, $telegram, $supplierCatalog);
         $this->deposit = new DepositHandler($db, $telegram, $vietQr);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
@@ -61,6 +66,16 @@ final class Router
 
         $user = $this->findUser($callback['from']);
         $data = (string) ($callback['data'] ?? 'start');
+        $lockName = 'telegram_callback_user_' . (int) $user['id'];
+        $lock = $this->db->fetch('SELECT GET_LOCK(?,0) acquired', [$lockName]);
+        if ((int) ($lock['acquired'] ?? 0) !== 1) return;
+        register_shutdown_function(function () use ($lockName): void {
+            try {
+                $this->db->fetch('SELECT RELEASE_LOCK(?)', [$lockName]);
+            } catch (Throwable) {
+                // The database connection also releases named locks when the request ends.
+            }
+        });
         $this->deactivatePaymentMessage($chatId, $messageId);
         if (str_starts_with($data, 'lang:')) {
             $code = substr($data, 5);
