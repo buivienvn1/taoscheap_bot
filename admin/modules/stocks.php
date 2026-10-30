@@ -22,6 +22,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
     $action = (string) ($_POST['action'] ?? 'import');
 
+    if ($action === 'refresh_inventory') {
+        $result = $supplierCatalog->refreshInventory();
+        redirectAdmin('stocks', $stockText($result['success'] ? 'admin_stock_refresh_success' : 'admin_stock_refresh_partial'));
+    }
+
     if ($action === 'save_sources') {
         $productId = max(0, (int) ($_POST['product_id'] ?? 0));
         $product = $db->fetch('SELECT source_variant_id FROM products WHERE id=?', [$productId]);
@@ -169,16 +174,55 @@ $sourceRows = $db->fetchAll('SELECT * FROM supplier_sources ORDER BY variant_id,
 $sourcesByVariant = [];
 foreach ($sourceRows as $sourceRow) $sourcesByVariant[(int) $sourceRow['variant_id']][] = $sourceRow;
 $providerNames = $supplierRegistry->names();
-$remoteProducts = $db->fetchAll('SELECT provider_key,remote_product_code,product_name,stock,unit_price,currency FROM supplier_products WHERE is_active=1 ORDER BY provider_key,product_name');
+$remoteProducts = $db->fetchAll('SELECT provider_key,remote_product_code,product_name,stock,is_available,is_active,unit_price,currency FROM supplier_products WHERE is_active=1 ORDER BY provider_key,product_name');
+$balanceRows = $db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT') ORDER BY currency='USDT'");
+$balancesByProvider = [];
+foreach ($balanceRows as $balanceRow) {
+    $providerKey = (string) $balanceRow['provider_key'];
+    $currency = strtoupper((string) $balanceRow['currency']);
+    if ($currency === 'USDT' || !isset($balancesByProvider[$providerKey])) {
+        $balancesByProvider[$providerKey] = (float) $balanceRow['amount'];
+    }
+}
 $remoteProductsByProvider = [];
+$remoteProductsByKey = [];
 foreach ($remoteProducts as $remoteProduct) {
-    $remoteProductsByProvider[(string) $remoteProduct['provider_key']][] = $remoteProduct;
+    $providerKey = (string) $remoteProduct['provider_key'];
+    $remoteCode = (string) $remoteProduct['remote_product_code'];
+    $remoteProduct['effective_stock'] = $supplierCatalog->effectiveStock($remoteProduct, $balancesByProvider[$providerKey] ?? 0.0);
+    $remoteProductsByProvider[$providerKey][] = $remoteProduct;
+    $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
 $summary = $db->fetchAll(
-    'SELECT p.id,p.name,COALESCE(SUM(s.is_sold=0),0) available,COALESCE(SUM(s.is_sold=1),0) sold
+    'SELECT p.id,p.name,p.source_variant_id,COALESCE(SUM(s.is_sold=0),0) manual_available,COALESCE(SUM(s.is_sold=1),0) sold
      FROM products p JOIN variants v ON v.id=p.source_variant_id LEFT JOIN stocks s ON s.variant_id=v.id
-     GROUP BY p.id,p.name ORDER BY p.sort_order,p.id'
+     GROUP BY p.id,p.name,p.source_variant_id ORDER BY p.sort_order,p.id'
 );
+foreach ($summary as &$summaryItem) {
+    $sources = $sourcesByVariant[(int) $summaryItem['source_variant_id']] ?? [];
+    $manualEnabled = false;
+    $summaryItem['api_available'] = 0;
+    $summaryItem['api_provider_name'] = null;
+
+    foreach ($sources as $source) {
+        if ($source['source_type'] === 'manual' && (int) $source['status'] === 1) {
+            $manualEnabled = true;
+            continue;
+        }
+        if ($source['source_type'] !== 'api' || (int) $source['status'] !== 1) continue;
+
+        $remote = $remoteProductsByKey[(string) $source['provider_key'] . "\0" . (string) $source['remote_product_code']] ?? null;
+        if ($remote === null || (int) $remote['effective_stock'] <= 0) continue;
+
+        $summaryItem['api_available'] = (int) $remote['effective_stock'];
+        $summaryItem['api_provider_name'] = $providerNames[(string) $source['provider_key']] ?? (string) $source['provider_key'];
+        break;
+    }
+
+    $summaryItem['manual_available'] = $manualEnabled ? (int) $summaryItem['manual_available'] : 0;
+    $summaryItem['available'] = (int) $summaryItem['manual_available'] + (int) $summaryItem['api_available'];
+}
+unset($summaryItem);
 
 if ($editId > 0) {
     $editing = $db->fetch(
@@ -209,6 +253,16 @@ $stockRows = $db->fetchAll($sql, $params);
 ?>
 <h1>Kho hàng</h1>
 <div class="card">
+    <div class="card-heading"><h3><?= e($stockText('admin_stock_overview')) ?></h3><form method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="refresh_inventory"><button type="submit"><?= e($stockText('admin_stock_refresh_inventory')) ?></button></form></div>
+    <div class="table-wrap"><table>
+        <thead><tr><th><?= e($stockText('admin_stock_product')) ?></th><th><?= e($stockText('admin_stock_available')) ?></th><th><?= e($stockText('admin_stock_sold')) ?></th><th><?= e($stockText('admin_stock_action')) ?></th></tr></thead>
+        <tbody><?php foreach ($summary as $item): ?><tr>
+            <td><?= e($item['name']) ?></td><td><strong><?= e($item['available']) ?></strong><?php if ($item['api_provider_name'] !== null): ?> <small>(<?= e($item['api_provider_name']) ?>: <?= e($item['api_available']) ?>)</small><?php endif; ?><br><small><?= e($stockText('admin_stock_manual_count')) ?>: <?= e($item['manual_available']) ?></small></td><td><?= e($item['sold']) ?></td>
+            <td><form method="post" onsubmit="return confirm('<?= e($stockText('admin_stock_delete_confirm')) ?>')"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="delete_available"><input type="hidden" name="product_id" value="<?= e($item['id']) ?>"><button type="submit" class="danger"><?= e($stockText('admin_stock_delete_available')) ?></button></form></td>
+        </tr><?php endforeach; ?><?php if ($summary === []): ?><tr><td colspan="4"><?= e($stockText('admin_stock_empty')) ?></td></tr><?php endif; ?></tbody>
+    </table></div>
+</div>
+<div class="card">
     <h3>Cấu hình nguồn hàng</h3>
     <div class="table-wrap"><table><thead><tr><th>Sản phẩm</th><th>Ưu tiên nguồn</th><th>Thao tác</th></tr></thead><tbody>
     <?php foreach ($products as $product): $configured = $sourcesByVariant[(int) $product['source_variant_id']] ?? []; $byPriority = []; foreach ($configured as $source) $byPriority[(int) $source['priority']] = $source; $sourceFormId = 'source-form-' . (int) $product['id']; $primaryInputId = 'primary-code-' . (int) $product['id']; $backupInputId = 'backup-code-' . (int) $product['id']; ?>
@@ -216,7 +270,7 @@ $stockRows = $db->fetchAll($sql, $params);
         <td><?= e($product['name']) ?><form id="<?= e($sourceFormId) ?>" method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="save_sources"><input type="hidden" name="product_id" value="<?= e($product['id']) ?>"><input type="hidden" name="source_version" value="<?= e($sourceFingerprint($configured)) ?>"></form><a href="?page=suppliers&q=<?= rawurlencode((string) $product['name']) ?>"><?= e($stockText('admin_stock_compare_suppliers')) ?></a></td>
         <td>
             <label class="inline-check"><input form="<?= e($sourceFormId) ?>" type="checkbox" name="manual_enabled" <?= (int) ($byPriority[0]['status'] ?? 0) === 1 ? 'checked' : '' ?>> Kho nhập tay (ưu tiên 1)</label>
-            <div class="source-grid"><select form="<?= e($sourceFormId) ?>" name="primary_provider" data-product-input="<?= e($primaryInputId) ?>"><option value=""><?= e($stockText('admin_stock_no_primary_api')) ?></option><?php foreach ($providerNames as $key => $name): ?><option value="<?= e($key) ?>" <?= ($byPriority[1]['provider_key'] ?? '') === $key ? 'selected' : '' ?>><?= e($name) ?></option><?php endforeach; ?></select><input id="<?= e($primaryInputId) ?>" form="<?= e($sourceFormId) ?>" name="primary_code" <?= ($byPriority[1]['provider_key'] ?? '') !== '' ? 'list="supplier-products-' . e($byPriority[1]['provider_key']) . '"' : '' ?> placeholder="<?= e($stockText('admin_stock_primary_code_placeholder')) ?>" value="<?= e($byPriority[1]['remote_product_code'] ?? '') ?>"><select form="<?= e($sourceFormId) ?>" name="backup_provider" data-product-input="<?= e($backupInputId) ?>"><option value=""><?= e($stockText('admin_stock_no_backup_api')) ?></option><?php foreach ($providerNames as $key => $name): ?><option value="<?= e($key) ?>" <?= ($byPriority[2]['provider_key'] ?? '') === $key ? 'selected' : '' ?>><?= e($name) ?></option><?php endforeach; ?></select><input id="<?= e($backupInputId) ?>" form="<?= e($sourceFormId) ?>" name="backup_code" <?= ($byPriority[2]['provider_key'] ?? '') !== '' ? 'list="supplier-products-' . e($byPriority[2]['provider_key']) . '"' : '' ?> placeholder="<?= e($stockText('admin_stock_backup_code_placeholder')) ?>" value="<?= e($byPriority[2]['remote_product_code'] ?? '') ?>"></div><label class="inline-check"><input form="<?= e($sourceFormId) ?>" type="checkbox" name="allow_manual_code"> <?= e($stockText('admin_stock_allow_manual_code')) ?></label>
+            <div class="source-grid"><select form="<?= e($sourceFormId) ?>" name="primary_provider" data-product-select="<?= e($primaryInputId) ?>"><option value=""><?= e($stockText('admin_stock_no_primary_api')) ?></option><?php foreach ($providerNames as $key => $name): ?><option value="<?= e($key) ?>" <?= ($byPriority[1]['provider_key'] ?? '') === $key ? 'selected' : '' ?>><?= e($name) ?></option><?php endforeach; ?></select><select id="<?= e($primaryInputId) ?>" form="<?= e($sourceFormId) ?>" name="primary_code" data-selected="<?= e($byPriority[1]['remote_product_code'] ?? '') ?>"><option value=""><?= e($stockText('admin_stock_select_product')) ?></option></select><select form="<?= e($sourceFormId) ?>" name="backup_provider" data-product-select="<?= e($backupInputId) ?>"><option value=""><?= e($stockText('admin_stock_no_backup_api')) ?></option><?php foreach ($providerNames as $key => $name): ?><option value="<?= e($key) ?>" <?= ($byPriority[2]['provider_key'] ?? '') === $key ? 'selected' : '' ?>><?= e($name) ?></option><?php endforeach; ?></select><select id="<?= e($backupInputId) ?>" form="<?= e($sourceFormId) ?>" name="backup_code" data-selected="<?= e($byPriority[2]['remote_product_code'] ?? '') ?>"><option value=""><?= e($stockText('admin_stock_select_product')) ?></option></select></div>
         </td>
         <td><button form="<?= e($sourceFormId) ?>" type="submit">Lưu nguồn</button></td>
     </tr>
@@ -224,21 +278,35 @@ $stockRows = $db->fetchAll($sql, $params);
     <?php if ($products === []): ?><tr><td colspan="3">Chưa có sản phẩm.</td></tr><?php endif; ?>
     </tbody></table></div>
 </div>
-<?php foreach ($remoteProductsByProvider as $providerKey => $providerProducts): ?><datalist id="supplier-products-<?= e($providerKey) ?>"><?php foreach ($providerProducts as $remote): ?><option value="<?= e($remote['remote_product_code']) ?>"><?= e($remote['product_name'] . ' — Kho ' . $remote['stock'] . ' — ' . ($remote['unit_price'] ?? '—') . ' ' . ($remote['currency'] ?? '')) ?></option><?php endforeach; ?></datalist><?php endforeach; ?>
+<script type="application/json" id="supplier-products-data"><?= json_encode($remoteProductsByProvider, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script>
-document.querySelectorAll('select[data-product-input]').forEach(function (providerSelect) {
-    providerSelect.addEventListener('change', function () {
-        var productInput = document.getElementById(providerSelect.dataset.productInput);
-        if (!productInput) return;
-        if (providerSelect.value) {
-            productInput.setAttribute('list', 'supplier-products-' + providerSelect.value);
-        } else {
-            productInput.removeAttribute('list');
+(function () {
+    var products = JSON.parse(document.getElementById('supplier-products-data').textContent || '{}');
+    var emptyLabel = <?= json_encode($stockText('admin_stock_select_product'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+    var missingLabel = <?= json_encode($stockText('admin_stock_missing_product'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+    function fill(providerSelect, keepSelection) {
+        var productSelect = document.getElementById(providerSelect.dataset.productSelect);
+        if (!productSelect) return;
+        var selected = keepSelection ? productSelect.dataset.selected : '';
+        productSelect.replaceChildren(new Option(emptyLabel, ''));
+        (products[providerSelect.value] || []).forEach(function (product) {
+            var label = product.product_name + ' — ' + product.effective_stock + ' — ' + (product.unit_price || '—') + ' USDT';
+            productSelect.add(new Option(label, product.remote_product_code, false, product.remote_product_code === selected));
+        });
+        if (selected && !Array.from(productSelect.options).some(function (option) { return option.value === selected; })) {
+            productSelect.add(new Option(missingLabel + ': ' + selected, selected, true, true));
         }
-        productInput.value = '';
-        productInput.focus();
+        productSelect.disabled = providerSelect.value === '';
+    }
+    document.querySelectorAll('select[data-product-select]').forEach(function (providerSelect) {
+        fill(providerSelect, true);
+        providerSelect.addEventListener('change', function () {
+            var productSelect = document.getElementById(providerSelect.dataset.productSelect);
+            if (productSelect) productSelect.dataset.selected = '';
+            fill(providerSelect, false);
+        });
     });
-});
+}());
 </script>
 <div class="card">
     <h3>Nhập kho hàng loạt</h3>
@@ -269,17 +337,6 @@ document.querySelectorAll('select[data-product-input]').forEach(function (provid
     </form>
 </div>
 <?php endif; ?>
-
-<div class="card table-wrap">
-    <h3>Tổng quan kho</h3>
-    <table>
-        <thead><tr><th>Sản phẩm</th><th>Còn</th><th>Đã bán</th><th>Thao tác</th></tr></thead>
-        <tbody><?php foreach ($summary as $item): ?><tr>
-            <td><?= e($item['name']) ?></td><td><?= e($item['available']) ?></td><td><?= e($item['sold']) ?></td>
-            <td><form method="post" onsubmit="return confirm('Xóa toàn bộ kho chưa bán của sản phẩm này?')"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="delete_available"><input type="hidden" name="product_id" value="<?= e($item['id']) ?>"><button type="submit" class="danger">Xóa kho chưa bán</button></form></td>
-        </tr><?php endforeach; ?></tbody>
-    </table>
-</div>
 
 <div class="card">
     <h3>Chi tiết kho</h3>

@@ -17,12 +17,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirectAdmin('suppliers', $t($result['success'] ? 'admin_supplier_sync_success' : 'admin_supplier_sync_failed'));
     }
     if ($action === 'save_rates') {
-        $supplierCatalog->saveExchangeRates([
-            'USD' => $_POST['rate_usd'] ?? null,
-            'USDT' => $_POST['rate_usdt'] ?? null,
-            'RUB' => $_POST['rate_rub'] ?? null,
-        ]);
-        redirectAdmin('suppliers', $t('admin_supplier_rates_saved'));
+        try {
+            $supplierCatalog->saveExchangeRates(['USDT' => $_POST['rate_usdt'] ?? null]);
+            redirectAdmin('suppliers', $t('admin_supplier_rates_saved'));
+        } catch (Throwable) {
+            redirectAdmin('suppliers', $t('admin_supplier_rate_invalid'));
+        }
+    }
+    if ($action === 'refresh_coingecko_rate') {
+        try {
+            $supplierCatalog->refreshCoinGeckoRate();
+            redirectAdmin('suppliers', $t('admin_supplier_coingecko_updated'));
+        } catch (Throwable) {
+            redirectAdmin('suppliers', $t('admin_supplier_coingecko_failed'));
+        }
     }
     if ($action === 'assign_source') {
         $productId = max(0, (int) ($_POST['product_id'] ?? 0));
@@ -53,7 +61,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $providerNames = $supplierRegistry->names();
 $balances = $db->fetchAll('SELECT provider_key,currency,amount,fetched_at FROM supplier_balances ORDER BY provider_key,currency');
 $balancesByProvider = [];
-foreach ($balances as $balance) $balancesByProvider[(string) $balance['provider_key']][] = $balance;
+$usdtBalances = [];
+foreach ($balances as $balance) {
+    $balancesByProvider[(string) $balance['provider_key']][] = $balance;
+    $currency = strtoupper((string) $balance['currency']);
+    $providerKey = (string) $balance['provider_key'];
+    if ($currency === 'USDT' || ($currency === 'USD' && !isset($usdtBalances[$providerKey]))) {
+        $usdtBalances[$providerKey] = (float) $balance['amount'];
+    }
+}
 $syncRows = $db->fetchAll('SELECT * FROM supplier_sync_state');
 $syncByProvider = [];
 foreach ($syncRows as $row) $syncByProvider[(string) $row['provider_key']][(string) $row['resource_type']] = $row;
@@ -131,17 +147,21 @@ if ($selected !== []) {
 
 <section class="card">
     <h3><?= e($t('admin_supplier_exchange_rates')) ?></h3>
-    <form method="post" class="rate-form"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="save_rates">
-        <?php foreach (['USD','USDT','RUB'] as $currency): ?><label><?= e($currency) ?> → VND<input type="number" min="0.00000001" step="0.00000001" name="rate_<?= e(strtolower($currency)) ?>" value="<?= e($rates[$currency] ?? '') ?>" required></label><?php endforeach; ?>
-        <button type="submit"><?= e($t('admin_save')) ?></button>
-    </form>
+    <div class="rate-actions">
+        <form method="post" class="rate-form"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="save_rates">
+            <label>USDT → VND<input type="number" min="0.00000001" step="0.00000001" name="rate_usdt" value="<?= e($rates['USDT'] ?? '') ?>" required></label>
+            <button type="submit"><?= e($t('admin_save')) ?></button>
+        </form>
+        <form method="post" class="actions"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="refresh_coingecko_rate"><button type="submit" class="secondary"><?= e($t('admin_supplier_fetch_coingecko')) ?></button></form>
+    </div>
+    <small class="help-text"><?= e($t('admin_supplier_currency_policy')) ?></small>
 </section>
 
 <section class="card">
     <h3><?= e($t('admin_supplier_catalog')) ?></h3>
     <form method="get" class="supplier-search"><input type="hidden" name="page" value="suppliers"><input name="q" value="<?= e($keyword) ?>" placeholder="<?= e($t('admin_supplier_search_placeholder')) ?>"><select name="provider"><option value=""><?= e($t('admin_supplier_all_providers')) ?></option><?php foreach ($providerNames as $key => $name): ?><option value="<?= e($key) ?>" <?= $providerFilter === $key ? 'selected' : '' ?>><?= e($name) ?></option><?php endforeach; ?></select><label class="inline-check"><input type="checkbox" name="in_stock" value="1" <?= $inStockOnly ? 'checked' : '' ?>> <?= e($t('admin_supplier_in_stock_only')) ?></label><button type="submit"><?= e($t('admin_search')) ?></button></form>
     <form method="get"><input type="hidden" name="page" value="suppliers"><input type="hidden" name="q" value="<?= e($keyword) ?>"><input type="hidden" name="provider" value="<?= e($providerFilter) ?>"><?php if ($inStockOnly): ?><input type="hidden" name="in_stock" value="1"><?php endif; ?><?php foreach ($preservedSelected as $selectedId): ?><input type="hidden" name="compare[]" value="<?= e($selectedId) ?>"><?php endforeach; ?><div class="table-wrap"><table><thead><tr><th></th><th><?= e($t('admin_supplier_provider')) ?></th><th><?= e($t('admin_supplier_remote_product')) ?></th><th><?= e($t('admin_supplier_stock')) ?></th><th><?= e($t('admin_supplier_original_price')) ?></th><th><?= e($t('admin_supplier_vnd_price')) ?></th><th><?= e($t('admin_status')) ?></th></tr></thead><tbody>
-    <?php foreach ($catalog as $item): ?><tr><td><input type="checkbox" name="compare[]" value="<?= e($item['id']) ?>" <?= in_array((int) $item['id'], $selected, true) ? 'checked' : '' ?>></td><td><?= e($providerNames[$item['provider_key']] ?? $item['provider_key']) ?></td><td><strong><?= e($item['product_name']) ?></strong><br><code><?= e($item['remote_product_code']) ?></code></td><td><?= e($item['stock']) ?></td><td><?= $item['unit_price'] === null ? '—' : e(number_format((float) $item['unit_price'], 6, '.', ',') . ' ' . $item['currency']) ?><br><small><?= e($item['price_kind']) ?></small></td><td><?= $item['price_vnd'] === null ? '—' : e(number_format((float) $item['price_vnd'], 0, ',', '.') . ' VND') ?></td><td><span class="badge <?= (int) $item['is_active'] === 1 && (int) $item['is_available'] === 1 ? 'success' : 'muted' ?>"><?= e($t((int) $item['is_active'] === 1 ? 'admin_supplier_active' : 'admin_supplier_removed')) ?></span><br><small><?= e($item['fetched_at']) ?></small></td></tr><?php endforeach; ?>
+    <?php foreach ($catalog as $item): $effectiveStock = $supplierCatalog->effectiveStock($item, $usdtBalances[(string) $item['provider_key']] ?? 0.0); ?><tr><td><input type="checkbox" name="compare[]" value="<?= e($item['id']) ?>" <?= in_array((int) $item['id'], $selected, true) ? 'checked' : '' ?>></td><td><?= e($providerNames[$item['provider_key']] ?? $item['provider_key']) ?></td><td><strong><?= e($item['product_name']) ?></strong><br><code><?= e($item['remote_product_code']) ?></code></td><td><?= e($effectiveStock) ?><br><small><?= e($t('admin_supplier_nominal_stock')) ?>: <?= e($item['stock']) ?></small></td><td><?= $item['unit_price'] === null ? '—' : e(number_format((float) $item['unit_price'], 6, '.', ',') . ' USDT') ?><br><small><?= e($item['price_kind']) ?></small></td><td><?= $item['price_vnd'] === null ? '—' : e(number_format((float) $item['price_vnd'], 0, ',', '.') . ' VND') ?></td><td><span class="badge <?= (int) $item['is_active'] === 1 && (int) $item['is_available'] === 1 ? 'success' : 'muted' ?>"><?= e($t((int) $item['is_active'] === 1 ? 'admin_supplier_active' : 'admin_supplier_removed')) ?></span><br><small><?= e($item['fetched_at']) ?></small></td></tr><?php endforeach; ?>
     <?php if ($catalog === []): ?><tr><td colspan="7"><?= e($t('admin_supplier_empty_catalog')) ?></td></tr><?php endif; ?>
     </tbody></table></div><div class="toolbar"><button type="submit"><?= e($t('admin_supplier_compare_selected')) ?></button><span><?= e($t('admin_pagination', ['current' => $pageNumber, 'total' => $totalPages])) ?></span><?php if ($pageNumber > 1): ?><a class="button secondary" href="<?= e($paginationQuery($pageNumber - 1)) ?>"><?= e($t('admin_previous')) ?></a><?php endif; ?><?php if ($pageNumber < $totalPages): ?><a class="button secondary" href="<?= e($paginationQuery($pageNumber + 1)) ?>"><?= e($t('admin_next')) ?></a><?php endif; ?></div></form>
 </section>

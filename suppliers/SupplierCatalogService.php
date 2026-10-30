@@ -5,6 +5,7 @@ declare(strict_types=1);
 final class SupplierCatalogService
 {
     private const LOCK_SECONDS = 120;
+    private const COINGECKO_USDT_VND_URL = 'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=vnd';
 
     public function __construct(
         private Database $db,
@@ -15,33 +16,83 @@ final class SupplierCatalogService
     /** @return array<string, float> */
     public function exchangeRates(): array
     {
-        $rows = $this->db->fetchAll("SELECT key_name,key_value FROM settings WHERE key_name LIKE 'supplier_rate_%'");
-        $rates = [];
-        foreach ($rows as $row) {
-            $currency = strtoupper(substr((string) $row['key_name'], strlen('supplier_rate_')));
-            if ($currency !== '' && is_numeric($row['key_value']) && (float) $row['key_value'] > 0) {
-                $rates[$currency] = (float) $row['key_value'];
-            }
+        $row = $this->db->fetch("SELECT key_value FROM settings WHERE key_name='supplier_rate_usdt_vnd'");
+        if ($row === null) {
+            $row = $this->db->fetch("SELECT key_value FROM settings WHERE key_name='supplier_rate_usdt'");
         }
-        return $rates;
+        $rate = is_numeric($row['key_value'] ?? null) ? (float) $row['key_value'] : 0.0;
+        return $rate > 0 ? ['USDT' => $rate, 'USD' => $rate] : [];
     }
 
     public function saveExchangeRates(array $values): void
     {
-        $allowed = ['USD', 'USDT', 'RUB'];
-        $this->db->transaction(function (Database $db) use ($values, $allowed): void {
-            foreach ($allowed as $currency) {
-                $value = $values[$currency] ?? null;
-                if (!is_numeric($value) || (float) $value <= 0) {
-                    continue;
-                }
-                $db->execute(
-                    'INSERT INTO settings(key_name,key_value) VALUES(?,?) ON DUPLICATE KEY UPDATE key_value=VALUES(key_value)',
-                    ['supplier_rate_' . strtolower($currency), number_format((float) $value, 8, '.', '')]
-                );
-            }
-        });
+        $value = $values['USDT'] ?? null;
+        if (!is_numeric($value) || (float) $value <= 0) {
+            throw new InvalidArgumentException('invalid_usdt_vnd_rate');
+        }
+        $this->db->execute(
+            "INSERT INTO settings(key_name,key_value) VALUES('supplier_rate_usdt_vnd',?) ON DUPLICATE KEY UPDATE key_value=VALUES(key_value)",
+            [number_format((float) $value, 8, '.', '')]
+        );
         $this->recalculatePrices();
+    }
+
+    public function refreshCoinGeckoRate(): float
+    {
+        $curl = curl_init(self::COINGECKO_USDT_VND_URL);
+        if ($curl === false) throw new RuntimeException('coingecko_curl_init_failed');
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+            CURLOPT_USERAGENT => 'TaosCheapBot/1.0',
+        ]);
+        $body = curl_exec($curl);
+        $status = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $error = curl_error($curl);
+        curl_close($curl);
+        if ($body === false || $status !== 200) {
+            throw new RuntimeException('coingecko_request_failed:' . $status . ':' . $error);
+        }
+        $data = json_decode($body, true);
+        $rate = $data['tether']['vnd'] ?? null;
+        if (!is_numeric($rate) || (float) $rate <= 0) {
+            throw new RuntimeException('coingecko_invalid_rate');
+        }
+        $this->saveExchangeRates(['USDT' => $rate]);
+        return (float) $rate;
+    }
+
+    /** @return array{success: bool, providers: int, errors: int} */
+    public function refreshInventory(): array
+    {
+        $providers = 0;
+        $errors = 0;
+        foreach ($this->registry->all() as $providerKey => $provider) {
+            if (!$provider->isConfigured()) continue;
+            $providers++;
+            if (!$this->syncBalance($providerKey)['success']) $errors++;
+            if (!$this->syncProducts($providerKey)['success']) $errors++;
+        }
+        return ['success' => $providers > 0 && $errors === 0, 'providers' => $providers, 'errors' => $errors];
+    }
+
+    public function effectiveStock(array $product, float $balance): int
+    {
+        $supplierStock = max(0, (int) ($product['stock'] ?? 0));
+        $price = is_numeric($product['unit_price'] ?? null) ? (float) $product['unit_price'] : 0.0;
+        if (
+            $supplierStock === 0
+            || $price <= 0
+            || $balance <= 0
+            || empty($product['is_active'])
+            || empty($product['is_available'])
+        ) {
+            return 0;
+        }
+
+        return min($supplierStock, max(0, (int) floor($balance / $price)));
     }
 
     /** @return array{success: bool, message: string} */
@@ -127,9 +178,9 @@ final class SupplierCatalogService
 
     public function recalculatePrices(): void
     {
-        foreach ($this->exchangeRates() as $currency => $rate) {
-            $this->db->execute('UPDATE supplier_products SET exchange_rate=?,price_vnd=ROUND(unit_price*?,2) WHERE currency=? AND unit_price IS NOT NULL', [$rate, $rate, $currency]);
-        }
+        $rate = $this->exchangeRates()['USDT'] ?? null;
+        if ($rate === null) return;
+        $this->db->execute("UPDATE supplier_products SET currency='USDT',exchange_rate=?,price_vnd=ROUND(unit_price*?,2) WHERE currency IN ('USD','USDT') AND unit_price IS NOT NULL", [$rate, $rate]);
     }
 
     private function claim(string $providerKey, string $resource): ?string

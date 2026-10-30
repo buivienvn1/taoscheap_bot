@@ -20,10 +20,7 @@ final class SandromaniaSupplier extends BaseApiSupplier
         if ($response['status'] !== 200 || !($response['data']['ok'] ?? false)) {
             throw new RuntimeException('sandromania_balance_failed');
         }
-        return [
-            'RUB' => (string) ($response['data']['balance_rub'] ?? '0'),
-            'USD' => (string) ($response['data']['balance_usd'] ?? '0'),
-        ];
+        return ['USDT' => (string) ($response['data']['balance_usd'] ?? '0')];
     }
 
     public function getProducts(): array
@@ -48,7 +45,7 @@ final class SandromaniaSupplier extends BaseApiSupplier
                 'stock' => $stock,
                 'available' => (bool) ($product['available'] ?? ($stock > 0)),
                 'unit_price' => $unitPrice,
-                'currency' => $unitPrice === null ? null : 'USD',
+                'currency' => $unitPrice === null ? null : 'USDT',
                 'price_kind' => 'quantity_1',
                 'max_quantity' => null,
                 'raw' => $product,

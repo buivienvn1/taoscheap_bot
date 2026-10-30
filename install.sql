@@ -546,7 +546,8 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('009_notification_history.sql', NULL),
     ('010_hybrid_payment.sql', NULL),
     ('011_multi_supplier_fulfillment.sql', NULL),
-    ('012_supplier_catalog_balance.sql', NULL);
+    ('012_supplier_catalog_balance.sql', NULL),
+    ('013_supplier_usdt_vnd_currency.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),
@@ -557,6 +558,4 @@ INSERT INTO settings (key_name, key_value) VALUES
     ('website', ''),
     ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
     ('support_text_en', 'Contact the administrator for support.'),
-    ('supplier_rate_usd', '25500'),
-    ('supplier_rate_usdt', '25500'),
-    ('supplier_rate_rub', '280');
+    ('supplier_rate_usdt_vnd', '25500');
