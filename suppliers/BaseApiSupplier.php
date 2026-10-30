@@ -13,7 +13,15 @@ abstract class BaseApiSupplier implements SupplierInterface
         return (string) ($this->config['name'] ?? $this->key());
     }
 
-    protected function isConfigured(array $requiredKeys): bool
+    public function isConfigured(): bool
+    {
+        return $this->hasRequiredConfig($this->requiredConfigKeys());
+    }
+
+    /** @return list<string> */
+    abstract protected function requiredConfigKeys(): array;
+
+    protected function hasRequiredConfig(array $requiredKeys): bool
     {
         if (!($this->config['enabled'] ?? false)) {
             return false;

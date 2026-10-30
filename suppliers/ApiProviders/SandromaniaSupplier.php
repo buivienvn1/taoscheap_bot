@@ -9,6 +9,11 @@ final class SandromaniaSupplier extends BaseApiSupplier
         return 'sandromania';
     }
 
+    protected function requiredConfigKeys(): array
+    {
+        return ['base_url', 'api_key', 'api_secret'];
+    }
+
     public function getBalance(): array
     {
         $response = $this->signedRequest('GET', '/api/v1/balance');
@@ -21,15 +26,42 @@ final class SandromaniaSupplier extends BaseApiSupplier
         ];
     }
 
-    public function getStock(string $remoteProductCode): int
+    public function getProducts(): array
     {
         $response = $this->signedRequest('GET', '/api/v1/products');
         if ($response['status'] !== 200 || !($response['data']['ok'] ?? false)) {
             throw new RuntimeException('sandromania_products_failed');
         }
+
+        $products = [];
         foreach ((array) ($response['data']['products'] ?? []) as $product) {
-            if ((string) ($product['id'] ?? '') === $remoteProductCode) {
-                return max(0, (int) ($product['stock'] ?? 0));
+            if (!is_array($product) || trim((string) ($product['id'] ?? '')) === '') {
+                continue;
+            }
+            $unitPrice = is_numeric($product['price_usd'] ?? null)
+                ? number_format((float) $product['price_usd'], 6, '.', '')
+                : null;
+            $stock = max(0, (int) ($product['stock'] ?? 0));
+            $products[] = [
+                'code' => (string) $product['id'],
+                'name' => trim((string) ($product['title'] ?? $product['id'])),
+                'stock' => $stock,
+                'available' => (bool) ($product['available'] ?? ($stock > 0)),
+                'unit_price' => $unitPrice,
+                'currency' => $unitPrice === null ? null : 'USD',
+                'price_kind' => 'quantity_1',
+                'max_quantity' => null,
+                'raw' => $product,
+            ];
+        }
+        return $products;
+    }
+
+    public function getStock(string $remoteProductCode): int
+    {
+        foreach ($this->getProducts() as $product) {
+            if ($product['code'] === $remoteProductCode) {
+                return $product['stock'];
             }
         }
         return 0;
@@ -37,7 +69,7 @@ final class SandromaniaSupplier extends BaseApiSupplier
 
     public function deliver(string $remoteProductCode, int $quantity, string $idempotencyKey): array
     {
-        if (!$this->isConfigured(['base_url', 'api_key', 'api_secret'])) {
+        if (!$this->isConfigured()) {
             return $this->failure('provider_not_configured', 'Sandromania is not configured.', false);
         }
         try {
@@ -86,7 +118,7 @@ final class SandromaniaSupplier extends BaseApiSupplier
         array $payload = [],
         ?string $idempotencyKey = null
     ): array {
-        if (!$this->isConfigured(['base_url', 'api_key', 'api_secret'])) {
+        if (!$this->isConfigured()) {
             throw new RuntimeException('sandromania_not_configured');
         }
         $rawBody = $payload === [] ? '' : $this->encodeJson($payload);

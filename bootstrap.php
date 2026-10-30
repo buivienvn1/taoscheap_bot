@@ -33,4 +33,5 @@ $db = new Database($databaseConfig);
 $telegram = new Telegram($app['bot_token']);
 $vietQr = new VietQR($bank);
 $supplierRegistry = new SupplierRegistry($suppliers);
+$supplierCatalog = new SupplierCatalogService($db, $supplierRegistry);
 $stockFulfillment = new StockFulfillmentService($db, $supplierRegistry);
