@@ -10,7 +10,9 @@ $suppliers = require (is_file($supplierConfigFile)
     ? $supplierConfigFile
     : __DIR__ . '/config/suppliers.example.php');
 
-date_default_timezone_set($app['timezone']);
+$appTimezone = (string) ($app['timezone'] ?? 'Asia/Ho_Chi_Minh');
+date_default_timezone_set($appTimezone);
+$databaseConfig['timezone'] = $appTimezone;
 
 spl_autoload_register(static function (string $class): void {
     $paths = [

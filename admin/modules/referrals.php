@@ -52,7 +52,7 @@ $rows = $db->fetchAll(
 $stats = $db->fetch("SELECT COALESCE(SUM(CASE WHEN status='paid' THEN reward_amount ELSE 0 END),0) paid,
     COALESCE(SUM(CASE WHEN status='queued' THEN reward_amount ELSE 0 END),0) queued,
     COALESCE(SUM(status='verification'),0) verification FROM referrals");
-$day = (new DateTimeImmutable('now', new DateTimeZone('Asia/Bangkok')))->format('Y-m-d');
+$day = date('Y-m-d');
 $today = $db->fetch('SELECT reward_amount FROM referral_daily_usage WHERE usage_day=? AND inviter_id=0', [$day]);
 $pageUrl = static fn (int $page): string => '?' . http_build_query(['page' => 'referrals', 'search' => $search, 'status' => $status, 'p' => $page]);
 ?>
@@ -105,7 +105,7 @@ $pageUrl = static fn (int $page): string => '?' . http_build_query(['page' => 'r
                     <td><?= e(Helpers::money($row['reward_amount'])) ?></td>
                     <td><?= e($t('referral_status_' . $row['status'])) ?></td>
                     <td><?= e($row['order_code'] ?? '—') ?></td>
-                    <td><span class="stock-content"><?= e($t('referral_reason_' . ($row['reason'] ?? 'none'))) ?></span><?= e($row['checked_at'] ?? '') ?></td>
+                    <td><span class="stock-content"><?= e($t('referral_reason_' . ($row['reason'] ?? 'none'))) ?></span><?= e(Helpers::dateTime($row['checked_at'] ?? null)) ?></td>
                     <td>
                         <?php if ($row['result'] === 'api_error' && in_array($row['status'], ['waiting', 'verification'], true)): ?>
                         <form method="post" class="toolbar">

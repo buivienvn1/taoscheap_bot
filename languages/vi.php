@@ -28,7 +28,7 @@ return [
     'referral_channel_url' => 'Link tham gia kênh',
     'referral_instructions' => 'Cách thức hoạt động',
     'referral_instructions_help' => 'Dùng <vi>...</vi>, <en>...</en>, Telegram HTML và {reward}. Tối đa 2.400 ký tự. Để trống dùng hướng dẫn mặc định.',
-    'referral_policy_help' => 'Mỗi bạn mới chỉ tạo một thưởng sau khi mua hàng và vẫn ở trong kênh. Không giới hạn giá trị đơn. Tiền thưởng chốt lúc ghi nhận bạn mới; hạn mức tính theo ngày Asia/Bangkok. Khoản đủ điều kiện được trả qua cron, kể cả khi tắt chương trình.',
+    'referral_policy_help' => 'Mỗi bạn mới chỉ tạo một thưởng sau khi mua hàng và vẫn ở trong kênh. Không giới hạn giá trị đơn. Tiền thưởng chốt lúc ghi nhận bạn mới; hạn mức tính theo múi giờ Việt Nam (UTC+7). Khoản đủ điều kiện được trả qua cron, kể cả khi tắt chương trình.',
     'referral_save' => 'Lưu cấu hình',
     'referral_saved' => 'Đã lưu cấu hình giới thiệu.',
     'referral_invalid_config' => 'Kiểm tra số tiền, hạn mức và thông tin kênh. Khi bật, các mức phải lớn hơn 0 và ngân sách phải đủ một lượt thưởng.',

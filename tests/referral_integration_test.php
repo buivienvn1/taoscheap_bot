@@ -11,7 +11,7 @@ spl_autoload_register(static function (string $class): void {
         if (is_file($file)) { require_once $file; return; }
     }
 });
-date_default_timezone_set('Asia/Bangkok');
+date_default_timezone_set('Asia/Ho_Chi_Minh');
 $port = (int) (getenv('REFERRAL_TEST_DB_PORT') ?: 13376);
 $password = getenv('REFERRAL_TEST_DB_PASSWORD') ?: '';
 $mockUrl = getenv('REFERRAL_TEST_TELEGRAM_URL') ?: '';

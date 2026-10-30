@@ -100,7 +100,7 @@ unset($queryBase['p'], $queryBase['message']);
                             <b><?= e($adminLang->get('admin_orders_completed_count', ['completed' => (string) $row['completed_orders_count']])) ?></b><br>
                             <small class="muted"><?= e($adminLang->get('admin_orders_total_sub', ['total' => (string) $row['total_orders_count']])) ?></small>
                         </td>
-                        <td><?= e((string) $row['created_at']) ?></td>
+                        <td><?= e(Helpers::dateTime((string) $row['created_at'])) ?></td>
                         <td>
                             <form method="post" class="actions">
                                 <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>">

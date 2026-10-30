@@ -21,6 +21,13 @@ final class Database
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
         ]);
+
+        $timezone = new DateTimeZone((string) ($config['timezone'] ?? date_default_timezone_get()));
+        $offset = $timezone->getOffset(new DateTimeImmutable('now', $timezone));
+        $sign = $offset < 0 ? '-' : '+';
+        $absoluteOffset = abs($offset);
+        $mysqlTimezone = sprintf('%s%02d:%02d', $sign, intdiv($absoluteOffset, 3600), intdiv($absoluteOffset % 3600, 60));
+        $this->pdo->exec("SET time_zone = " . $this->pdo->quote($mysqlTimezone));
     }
 
     public function pdo(): PDO

@@ -175,27 +175,15 @@ $sourcesByVariant = [];
 foreach ($sourceRows as $sourceRow) $sourcesByVariant[(int) $sourceRow['variant_id']][] = $sourceRow;
 $providerNames = $supplierRegistry->names();
 $remoteProducts = $db->fetchAll('SELECT provider_key,remote_product_code,product_name,stock,is_available,is_active,unit_price,currency FROM supplier_products WHERE is_active=1 ORDER BY provider_key,product_name');
-$balanceRows = $db->fetchAll("SELECT provider_key,currency,amount FROM supplier_balances WHERE currency IN ('USD','USDT','VND')");
-$balancesByProvider = [];
-foreach ($balanceRows as $balanceRow) {
-    $providerKey = (string) $balanceRow['provider_key'];
-    $currency = strtoupper((string) $balanceRow['currency']);
-    if ($currency === 'USD') {
-        $currency = 'USDT';
-    }
-    $balancesByProvider[$providerKey][$currency] = (float) $balanceRow['amount'];
-}
 $remoteProductsByProvider = [];
 $remoteProductsByKey = [];
 foreach ($remoteProducts as $remoteProduct) {
     $providerKey = (string) $remoteProduct['provider_key'];
     $remoteCode = (string) $remoteProduct['remote_product_code'];
-    $curr = strtoupper((string) ($remoteProduct['currency'] ?? 'USDT'));
-    if ($curr === 'USD') {
-        $curr = 'USDT';
-    }
-    $balance = (float) ($balancesByProvider[$providerKey][$curr] ?? 0.0);
-    $remoteProduct['effective_stock'] = $supplierCatalog->effectiveStock($remoteProduct, $balance);
+    $remoteProduct['effective_stock'] = $supplierCatalog->effectiveStock($remoteProduct);
+    $remoteProduct['display_price'] = $remoteProduct['unit_price'] === null
+        ? '—'
+        : Helpers::cleanNumber($remoteProduct['unit_price']);
     $remoteProductsByProvider[$providerKey][] = $remoteProduct;
     $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
@@ -283,7 +271,7 @@ $stockRows = $db->fetchAll($sql, $params);
         productSelect.replaceChildren(new Option(emptyLabel, ''));
         (products[providerSelect.value] || []).forEach(function (product) {
             var currency = product.currency || 'USDT';
-            var label = product.product_name + ' — ' + product.effective_stock + ' — ' + (product.unit_price || '—') + ' ' + currency;
+            var label = product.product_name + ' — ' + product.effective_stock + ' — ' + (product.display_price || '—') + ' ' + currency;
             productSelect.add(new Option(label, product.remote_product_code, false, product.remote_product_code === selected));
         });
         if (selected && !Array.from(productSelect.options).some(function (option) { return option.value === selected; })) {

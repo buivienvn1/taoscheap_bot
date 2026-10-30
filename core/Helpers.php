@@ -129,7 +129,8 @@ final class Helpers
     {
         if ($value === null || trim($value) === '') return '';
         try {
-            return (new DateTimeImmutable($value))->format('d/m/Y H:i');
+            $timezone = new DateTimeZone(date_default_timezone_get());
+            return (new DateTimeImmutable($value, $timezone))->setTimezone($timezone)->format('d/m/Y H:i');
         } catch (Throwable) {
             return '';
         }

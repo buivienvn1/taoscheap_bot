@@ -28,7 +28,7 @@ return [
     'referral_channel_url' => 'Channel join link',
     'referral_instructions' => 'How it works',
     'referral_instructions_help' => 'Use <vi>...</vi>, <en>...</en>, Telegram HTML and {reward}. Maximum 2,400 characters. Leave blank for default instructions.',
-    'referral_policy_help' => 'Each new friend qualifies once after a successful purchase while still in the channel. No minimum order value. Rewards are fixed at registration; daily limits use Asia/Bangkok. Qualified rewards are paid by cron, including while the program is disabled.',
+    'referral_policy_help' => 'Each new friend qualifies once after a successful purchase while still in the channel. No minimum order value. Rewards are fixed at registration; daily limits use Vietnam time (UTC+7). Qualified rewards are paid by cron, including while the program is disabled.',
     'referral_save' => 'Save settings',
     'referral_saved' => 'Referral settings saved.',
     'referral_invalid_config' => 'Check amounts, limits and channel details. Enabled programs require positive amounts and a budget covering at least one reward.',

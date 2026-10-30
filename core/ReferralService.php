@@ -152,7 +152,7 @@ final class ReferralService
             $referral = $this->db->fetch('SELECT * FROM referrals WHERE id=? FOR UPDATE', [$referralId]);
             if ($referral === null || $referral['status'] !== 'queued') return false;
             $config = $this->config(); // Already qualified rewards remain payable while disabled.
-            $day = (new DateTimeImmutable('now', new DateTimeZone('Asia/Bangkok')))->format('Y-m-d');
+            $day = date('Y-m-d');
             foreach ([0, (int) $referral['inviter_id']] as $scope) {
                 $this->db->execute('INSERT IGNORE INTO referral_daily_usage(usage_day,inviter_id) VALUES(?,?)', [$day, $scope]);
             }
@@ -187,7 +187,7 @@ final class ReferralService
     {
         $paid = 0;
         $config = $this->config();
-        $day = (new DateTimeImmutable('now', new DateTimeZone('Asia/Bangkok')))->format('Y-m-d');
+        $day = date('Y-m-d');
         // Skip inviters already at their limit so they cannot starve later queued rewards.
         $rows = $this->db->fetchAll(
             "SELECT r.id FROM referrals r LEFT JOIN referral_daily_usage d ON d.usage_day=? AND d.inviter_id=r.inviter_id
