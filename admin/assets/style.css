@@ -112,16 +112,30 @@ td {
     vertical-align: top
 }
 
-input:not([type="checkbox"]):not([type="radio"]),
+input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]),
 textarea,
 select {
     width: 100%;
-    padding: 9px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     margin: 4px 0 10px;
     box-sizing: border-box;
     font: inherit
+}
+
+/* Chuẩn dùng chung cho control một dòng, tránh chữ bị cắt theo chiều dọc. */
+input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]),
+select {
+    min-height: 36px;
+    padding: 0 9px;
+    line-height: 20px;
+    vertical-align: middle
+}
+
+textarea {
+    min-height: 90px;
+    padding: 9px;
+    line-height: 1.4
 }
 
 input[type="checkbox"],
@@ -329,7 +343,7 @@ input[type="submit"]:disabled {
     margin: 0
 }
 
-.toolbar input:not([type="checkbox"]):not([type="radio"]),
+.toolbar input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]),
 .toolbar select,
 .toolbar button,
 .toolbar .button {
@@ -353,16 +367,6 @@ input[type="submit"]:disabled {
     min-height: 36px;
     margin: 0;
     box-sizing: border-box
-}
-
-.filter-form select,
-.toolbar select,
-.toolbar input:not([type="checkbox"]):not([type="radio"]) {
-    height: 36px;
-    min-height: 36px;
-    padding: 0 9px;
-    line-height: 20px;
-    vertical-align: middle
 }
 
 .source-grid {
@@ -454,12 +458,15 @@ input[type="submit"]:disabled {
     flex: 1 1 180px
 }
 
-.rate-form input,
-.supplier-search input:not([type="checkbox"]),
+.rate-form input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+.supplier-search input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
 .supplier-search select,
 .assign-source-form select {
     height: 36px;
-    margin: 0
+    min-height: 36px;
+    margin: 0;
+    padding: 0 9px;
+    line-height: 20px
 }
 
 .supplier-search input {
@@ -663,7 +670,7 @@ input[type="submit"]:disabled {
     }
 
     .rate-form label,
-    .supplier-search input:not([type="checkbox"]),
+    .supplier-search input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
     .supplier-search select,
     .supplier-stock-filter,
     .assign-source-form select,
@@ -679,7 +686,7 @@ input[type="submit"]:disabled {
         flex-direction: column
     }
 
-    .toolbar input:not([type="checkbox"]):not([type="radio"]),
+    .toolbar input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]),
     .toolbar select,
     .toolbar button,
     .toolbar .button,
