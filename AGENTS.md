@@ -9,13 +9,17 @@
 - Dữ liệu động đưa vào Telegram HTML phải được escape bằng `Helpers::escape()` trước khi truyền vào placeholder hoặc ghép vào nội dung.
 - Không đặt dữ liệu cấu hình như tên ngân hàng, số tài khoản, tên chủ tài khoản, URL hoặc mã thanh toán trong file ngôn ngữ.
 
-## Đồng bộ giao diện Telegram
+## Clean Code và Thiết kế Hệ thống
 
-- Nội dung cốt lõi phải nhất quán giữa caption ảnh và tin nhắn văn bản dự phòng.
-- Nên tạo một biến nội dung nền rồi tái sử dụng cho cả luồng gửi ảnh và fallback, tránh xây dựng hai bản nội dung riêng.
-- Khi ảnh QR không gửi được, phải giữ đầy đủ thông tin thanh toán và cung cấp nút URL để người dùng mở QR bên ngoài Telegram.
-- Nút URL phải dùng chính URL QR đã tạo cho giao dịch, không tạo lại mã hoặc URL khác trong nhánh fallback.
-- Văn bản và callback của nút điều hướng phải lấy từ file ngôn ngữ.
+- Code luôn đơn giản, tường minh (KISS), dễ đọc, dễ nâng cấp và bảo trì khi cần; tránh over-engineering hoặc tạo abstraction dư thừa.
+- Tách bạch rõ trách nhiệm, ưu tiên hàm/phương thức tập trung giải quyết một nhiệm vụ duy nhất.
+- Đặt tên biến, hàm, lớp mang tính ngữ nghĩa; tái sử dụng các hàm/dịch vụ dùng chung, tránh trùng lặp logic.
+
+## Trải nghiệm UI/UX và Nội dung
+
+- Câu từ, văn bản giao diện (tin nhắn bot, thông báo, nhãn, hướng dẫn) luôn ngắn gọn, súc tích, đi thẳng vào trọng tâm.
+- Kiến trúc và thiết kế luồng người dùng luôn tối giản: giảm thiểu tối đa các bước/thao tác thừa, luồng xử lý trực quan, mượt mà và dễ hiểu nhất cho người dùng.
+- Văn bản và callback của các nút điều hướng phải lấy từ file ngôn ngữ, nhất quán theo ngữ cảnh người dùng.
 
 ## Giao diện Web và thành phần UI
 
@@ -30,19 +34,11 @@
 - Tài nguyên CSS và JavaScript của giao diện quản trị phải có cache-busting dựa trên phiên bản file hoặc commit để bản triển khai mới có hiệu lực ngay.
 - Sau mỗi thay đổi giao diện phải kiểm tra trực quan tối thiểu ở desktop và mobile, gồm: chiều cao control, căn hàng, khoảng cách, wrap, overflow, focus bằng bàn phím và trạng thái disabled.
 
-## Thanh toán
-
-- Không tạo mã thanh toán mới khi vẫn còn bản ghi `pending` phù hợp với khóa nghiệp vụ đã định nghĩa.
-- Không thay đổi mã thanh toán đang chờ chỉ để thay đổi cách trình bày.
-- Nội dung hiển thị phải lấy từ cùng dữ liệu đã dùng để tạo QR.
-- Không ghi bot token, mã thanh toán, chat ID, số tài khoản hoặc dữ liệu nhạy cảm vào log.
-
 ## Kiểm tra trước khi hoàn tất
 
 - Kiểm tra đủ tiếng Việt và tiếng Anh.
 - Kiểm tra tính đồng đều của button/input/select, checkbox/radio, toolbar, nhóm thao tác và khả năng hiển thị trên mobile khi thay đổi giao diện web.
 - Không hoàn tất thay đổi CSS chỉ dựa trên việc code hợp lệ; phải đối chiếu giao diện thực tế hoặc ảnh chụp ở các breakpoint liên quan.
-- Kiểm tra cả nhánh gửi ảnh thành công và fallback không có ảnh.
 - Kiểm tra Telegram HTML hợp lệ và dữ liệu động đã được escape.
-- Kiểm tra nút mở QR dùng URL hợp lệ và các nút điều hướng vẫn hoạt động.
+- Kiểm tra các nút điều hướng và callback hoạt động chính xác.
 - Không stage, reset hoặc ghi đè các thay đổi cục bộ không thuộc nhiệm vụ hiện tại.

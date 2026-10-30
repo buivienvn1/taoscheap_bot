@@ -15,7 +15,8 @@ try {
     $client = new PaymentFeedClient($config);
     $adapter = new PaymentFeedAdapter();
     $outbox = new NotificationOutbox($db, $telegram);
-    $processor = new PaymentProcessor($db, $outbox, $app, $stockFulfillment);
+    $referrals = new ReferralService($db, $telegram);
+    $processor = new PaymentProcessor($db, $outbox, $app, $stockFulfillment, $referrals);
     $service = new PaymentFeedService($db, $processor, $config);
     $provider = (string) ($config['provider'] ?? 'acb_third_party');
     $startedAt = time();

@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 final class PaymentProcessor
 {
+    private ReferralService $referrals;
     public function __construct(
         private Database $db,
         private NotificationOutbox $outbox,
         private array $app,
-        private StockFulfillmentService $fulfillment
+        private StockFulfillmentService $fulfillment,
+        ?ReferralService $referrals = null
     ) {
+        $this->referrals = $referrals ?? new ReferralService($db, new Telegram($app['bot_token']));
     }
 
     public function process(array $payment): array
@@ -64,7 +67,8 @@ final class PaymentProcessor
         $delivery = $this->fulfillment->fulfill((int) $order['id'], (int) $order['variant_id'], max(1, (int) $order['quantity']), (string) $order['order_code']);
         if ($delivery['pending'] ?? false) return ['result' => 'fulfillment_pending', 'outbox_id' => null];
 
-        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $amount, $code): array {
+        $referralEvidence = ($delivery['success'] ?? false) ? $this->referrals->inspectOrder((int) $order['user_id']) : null;
+        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $amount, $code, $referralEvidence): array {
             $order = $db->fetch("SELECT o.*,u.telegram_id,u.username,u.first_name,u.last_name,u.language FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE", [$prepared['order']['id']]);
             $locked = $db->fetch('SELECT * FROM payment_code_registry WHERE id=? FOR UPDATE', [$prepared['locked']['id']]);
             if ($order['status'] === 'completed' || $locked['status'] === 'processed') return ['result' => 'duplicate_code', 'outbox_id' => null];
@@ -76,6 +80,7 @@ final class PaymentProcessor
                 $result = $this->refundOrder($order, $amount, $code, 'out_of_stock', 'order_result_out_of_stock', $params);
             } else {
                 $result = $this->completePaidOrder($order, $amount, $delivery['items'] ?? []);
+                $this->referrals->recordOrder((int) $order['id'], $referralEvidence);
             }
             $this->finalizePaymentRegistry($locked, $result, $amount, $prepared['eventId']);
             return ['result' => $result['result'], 'outbox_id' => $result['outbox_id']];

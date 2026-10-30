@@ -99,6 +99,23 @@ Hai worker dùng file lock để tránh chạy chồng. Worker notification retr
 
 ## Vận hành
 
+### Giới thiệu bạn bè
+
+1. Sao lưu database và chạy migration `015_referral_rewards.sql` qua `php migrate.php`. Không import lại `install.sql` trên hệ thống đang có dữ liệu.
+2. Thêm bot làm quản trị viên của kênh, vào **Giới thiệu bạn bè** trong Admin, nhập thưởng VND/lượt, giới hạn lượt/người/ngày, ngân sách/ngày, ID và link kênh. Khi bật, hệ thống kiểm tra quyền bot và lấy bot username tự động.
+3. Hướng dẫn hỗ trợ `<vi>...</vi>`, `<en>...</en>`, Telegram HTML và `{reward}`. Để trống dùng nội dung mặc định. Không có ngưỡng giá trị đơn.
+4. Thêm cron trả thưởng mỗi phút, bên cạnh cron `notification_outbox.php` hiện có:
+
+```cron
+* * * * * /usr/local/bin/ea-php81 /home/CPANEL_USER/taoscheap.qthang.net/cron/referral_rewards.php >/dev/null 2>&1
+```
+
+Chỉ bạn mới lần đầu vào bot qua link mời mới được ghi nhận. Bạn mới phải xác nhận vào kênh để mở menu; khi giao hàng thành công, bot kiểm tra lại thành viên ngay trước khi hoàn tất đơn. Mỗi bạn mới tạo tối đa một thưởng. Không cần chờ 24 giờ và không thu hồi khi rời kênh sau khi đã trả.
+
+Nếu Telegram lỗi, đơn vẫn được giao và lượt giới thiệu chuyển sang **Chờ xác minh**. Chỉ duyệt ngoại lệ khi có bằng chứng về tư cách thành viên tại thời điểm hoàn tất, kèm lý do; không dùng việc vào kênh sau đó để xét lại đơn cũ. Nếu không duyệt, đơn hợp lệ sau vẫn có thể tạo thưởng.
+
+Hạn mức tính theo ngày `Asia/Bangkok`. Khoản đủ điều kiện vượt hạn mức chờ sang ngày sau và vẫn được trả khi chương trình tắt. Tiền thưởng chốt lúc ghi nhận bạn mới. Không đổi kênh khi còn referral chưa kết thúc. Kiểm tra cron/log và các trạng thái chờ trước khi tăng ngân sách; API kiểm tra thành viên phản ánh thời điểm gần hoàn tất, không thể bảo đảm trạng thái không đổi giữa lần kiểm tra và lần ghi database.
+
 1. Vào **Sản phẩm**, thêm sản phẩm và các gói giá.
 2. Chọn nguồn `manual` để dùng kho nội bộ.
 3. Vào **Kho hàng**, chọn gói rồi dán key/tài khoản; mỗi dòng là một sản phẩm.

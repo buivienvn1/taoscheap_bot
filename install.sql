@@ -5,6 +5,10 @@ SET NAMES utf8mb4;
 SET time_zone = '+07:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS referral_order_checks;
+DROP TABLE IF EXISTS referral_daily_usage;
+DROP TABLE IF EXISTS referrals;
+DROP TABLE IF EXISTS referral_codes;
 DROP TABLE IF EXISTS schema_migrations;
 DROP TABLE IF EXISTS payment_feed_observations;
 DROP TABLE IF EXISTS payment_feed_runs;
@@ -391,7 +395,7 @@ CREATE TABLE deposits (
 CREATE TABLE transactions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     user_id BIGINT UNSIGNED NOT NULL,
-    type ENUM('deposit', 'purchase', 'refund', 'adjustment') NOT NULL,
+    type ENUM('deposit', 'purchase', 'refund', 'adjustment', 'referral_reward') NOT NULL,
     amount DECIMAL(15,2) NOT NULL,
     balance_before DECIMAL(15,2) NULL,
     balance_after DECIMAL(15,2) NULL,
@@ -535,6 +539,64 @@ CREATE TABLE admins (
     UNIQUE KEY uq_admins_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS referral_codes (
+    user_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    code CHAR(12) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    UNIQUE KEY uq_referral_code (code),
+    CONSTRAINT fk_referral_code_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS referrals (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    inviter_id BIGINT UNSIGNED NOT NULL,
+    invitee_id BIGINT UNSIGNED NOT NULL,
+    reward_amount BIGINT UNSIGNED NOT NULL,
+    channel_id VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+    gate_passed_at DATETIME NULL,
+    last_gate_check_at DATETIME NULL,
+    eligible_order_id BIGINT UNSIGNED NULL,
+    transaction_id BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME NULL,
+    UNIQUE KEY uq_referral_invitee (invitee_id),
+    UNIQUE KEY uq_referral_order (eligible_order_id),
+    UNIQUE KEY uq_referral_transaction (transaction_id),
+    KEY idx_referral_inviter (inviter_id,id),
+    KEY idx_referral_queue (status,id),
+    CONSTRAINT fk_referral_inviter FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_referral_invitee FOREIGN KEY (invitee_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_referral_order FOREIGN KEY (eligible_order_id) REFERENCES orders(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_referral_transaction FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS referral_order_checks (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    referral_id BIGINT UNSIGNED NOT NULL,
+    order_id BIGINT UNSIGNED NOT NULL,
+    result VARCHAR(20) NOT NULL,
+    checked_at DATETIME NOT NULL,
+    reason VARCHAR(50) NOT NULL,
+    review_reason VARCHAR(500) NULL,
+    reviewed_by VARCHAR(100) NULL,
+    reviewed_at DATETIME NULL,
+    UNIQUE KEY uq_referral_check_order (order_id),
+    KEY idx_referral_check (referral_id,id),
+    CONSTRAINT fk_referral_check_referral FOREIGN KEY (referral_id) REFERENCES referrals(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_referral_check_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS referral_daily_usage (
+    usage_day DATE NOT NULL,
+    inviter_id BIGINT UNSIGNED NOT NULL,
+    reward_count INT UNSIGNED NOT NULL DEFAULT 0,
+    reward_amount BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (usage_day,inviter_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO settings(key_name,key_value) VALUES ('referral_config','{"enabled":false,"reward":0,"daily_limit":0,"daily_budget":0,"channel_id":"","channel_url":"","bot_username":"","instructions":""}');
+
+
 INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('001_init_schema.sql', NULL),
     ('002_update_welcome_ui.sql', NULL),
@@ -547,7 +609,9 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('010_hybrid_payment.sql', NULL),
     ('011_multi_supplier_fulfillment.sql', NULL),
     ('012_supplier_catalog_balance.sql', NULL),
-    ('013_supplier_usdt_vnd_currency.sql', NULL);
+    ('013_supplier_usdt_vnd_currency.sql', NULL),
+    ('014_supplier_balance_currencies.sql', NULL),
+    ('015_referral_rewards.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),

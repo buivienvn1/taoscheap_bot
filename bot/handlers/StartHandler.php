@@ -35,6 +35,7 @@ final class StartHandler
         $keyboard = [
             [['text' => $lang->get('btn_products'), 'callback_data' => 'products'], ['text' => $lang->get('btn_deposit'), 'callback_data' => 'deposit']],
             [['text' => $lang->get('btn_profile'), 'callback_data' => 'profile'], ['text' => $lang->get('btn_support'), 'callback_data' => 'support']],
+            [['text' => $lang->get('referral_title'), 'callback_data' => 'referral']],
             [['text' => $lang->get('btn_language'), 'callback_data' => 'language']],
         ];
 

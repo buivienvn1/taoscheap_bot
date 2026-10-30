@@ -5,6 +5,7 @@ declare(strict_types=1);
 final class OrderHandler
 {
     private NotificationOutbox $outbox;
+    private ReferralService $referrals;
 
     public function __construct(
         private Database $db,
@@ -12,9 +13,11 @@ final class OrderHandler
         private VietQR $vietQr,
         private array $app,
         private StockFulfillmentService $fulfillment,
-        private SupplierCatalogService $supplierCatalog
+        private SupplierCatalogService $supplierCatalog,
+        ?ReferralService $referrals = null
     ) {
         $this->outbox = new NotificationOutbox($db, $telegram);
+        $this->referrals = $referrals ?? new ReferralService($db, $telegram);
     }
 
     public function checkout(
@@ -197,7 +200,8 @@ final class OrderHandler
         $delivery = $this->fulfillment->fulfill((int) $prepared['orderId'], (int) $variant['id'], $quantity, (string) $prepared['orderCode']);
         if ($delivery['pending'] ?? false) return ['message' => $lang->get('supplier_fulfillment_pending')];
 
-        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $variant, $quantity, $requestToken, $lang): array {
+        $referralEvidence = ($delivery['success'] ?? false) ? $this->referrals->inspectOrder($userId) : null;
+        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $variant, $quantity, $requestToken, $lang, $referralEvidence): array {
             $order = $db->fetch('SELECT * FROM orders WHERE id=? FOR UPDATE', [$prepared['orderId']]);
             if ($order['status'] === 'completed') return $this->walletOrderMessage($db, (int) $order['id'], $lang);
             if ($order['status'] !== 'processing') {
@@ -215,6 +219,7 @@ final class OrderHandler
             }
             $completedAt = date('Y-m-d H:i:s');
             $db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',completed_at=? WHERE id=?", [implode("\n", $delivery['items'] ?? []), $completedAt, $order['id']]);
+            $this->referrals->recordOrder((int) $order['id'], $referralEvidence);
             $db->execute("UPDATE purchase_requests SET status='completed',result_reason='delivered' WHERE request_token=?", [$requestToken]);
             $this->enqueueWalletOrderAdmins((int) $order['id'], $prepared['user'], $variant, $quantity, $prepared['total'], $prepared['orderCode'], $completedAt);
             return $this->walletOrderMessage($db, (int) $order['id'], $lang);

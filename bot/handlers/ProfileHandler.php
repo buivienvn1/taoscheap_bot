@@ -85,7 +85,10 @@ final class ProfileHandler
         if ($row['balance_before'] !== null) $text .= "\n" . $lang->get('transaction_balance_before') . ': ' . Helpers::money($row['balance_before']);
         if ($row['balance_after'] !== null) $text .= "\n" . $lang->get('transaction_balance_after') . ': ' . Helpers::money($row['balance_after']);
         if (trim((string) ($row['transfer_code'] ?? '')) !== '') $text .= "\n" . $lang->get('transaction_transfer_code') . ': <code>' . Helpers::escape($row['transfer_code']) . '</code>';
-        if (trim((string) ($row['note'] ?? '')) !== '') $text .= "\n" . $lang->get('transaction_note') . ': ' . Helpers::escape($row['note']);
+        if (trim((string) ($row['note'] ?? '')) !== '') {
+            $note = $row['type'] === 'referral_reward' ? $lang->get('transaction_type_referral_reward') : $row['note'];
+            $text .= "\n" . $lang->get('transaction_note') . ': ' . Helpers::escape($note);
+        }
         $this->telegram->editMessage($chatId, $messageId, $text, [[
             ['text' => $lang->get('back'), 'callback_data' => 'transactions:' . max(1, $page)],
         ]]);

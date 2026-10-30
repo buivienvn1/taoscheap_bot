@@ -24,6 +24,16 @@ final class Telegram
         curl_close($this->curl);
     }
 
+    public function getMe(): array
+    {
+        return $this->request('getMe', [])['result'];
+    }
+
+    public function getChatMember(int|string $chatId, int $userId): array
+    {
+        return $this->request('getChatMember', ['chat_id' => $chatId, 'user_id' => $userId])['result'];
+    }
+
     public function sendMessage(int|string $chatId, string $text, array $keyboard = []): array
     {
         return $this->request('sendMessage', $this->messagePayload($chatId, $text, $keyboard));

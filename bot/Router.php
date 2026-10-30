@@ -11,6 +11,8 @@ final class Router
     private SupportHandler $support;
     private OrderHandler $orders;
     private array $languages;
+    private ReferralService $referrals;
+    private ReferralHandler $referralHandler;
 
     public function __construct(
         private Database $db,
@@ -20,12 +22,14 @@ final class Router
         SupplierCatalogService $supplierCatalog
     ) {
         global $stockFulfillment;
+        $this->referrals = new ReferralService($db, $telegram);
+        $this->referralHandler = new ReferralHandler($db, $telegram, $this->referrals);
         $this->start = new StartHandler($db, $telegram);
         $this->products = new ProductHandler($db, $telegram, $supplierCatalog);
         $this->deposit = new DepositHandler($db, $telegram, $vietQr);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
-        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app, $stockFulfillment, $supplierCatalog);
+        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app, $stockFulfillment, $supplierCatalog, $this->referrals);
         $this->languages = ['vi' => new Language('vi'), 'en' => new Language('en')];
     }
 
@@ -38,9 +42,15 @@ final class Router
         $message = $update['message'] ?? null;
         if (!is_array($message) || !isset($message['chat']['id'], $message['from'])) return;
 
-        $user = $this->upsertUser($message['from']);
-        $lang = $this->language($user['language'] ?? 'vi');
+        if (($message['chat']['type'] ?? '') !== 'private' || !empty($message['from']['is_bot'])) return;
         $text = trim((string) ($message['text'] ?? ''));
+        $code = preg_match('/^\/start\s+([A-Za-z0-9]{12})$/D', $text, $match) ? $match[1] : '';
+        $user = $this->upsertUser($message['from'], $code);
+        $lang = $this->language($user['language'] ?? 'vi');
+        if ($this->referrals->needsGate((int) $user['id'])) {
+            $this->referralHandler->gate((int) $message['chat']['id'], null, $lang);
+            return;
+        }
         if ($text === '/start' || str_starts_with($text, '/start ')) {
             $this->start->show((int) $message['chat']['id'], $lang);
             return;
@@ -63,6 +73,8 @@ final class Router
         $chatId = (int) ($message['chat']['id'] ?? 0);
         $messageId = (int) ($message['message_id'] ?? 0);
         if ($chatId === 0 || $messageId === 0) return;
+        if (($message['chat']['type'] ?? '') !== 'private' || !isset($callback['from']['id'])
+            || $chatId !== (int) $callback['from']['id']) return;
 
         $user = $this->findUser($callback['from']);
         $data = (string) ($callback['data'] ?? 'start');
@@ -86,7 +98,20 @@ final class Router
         }
         $lang = $this->language($user['language'] ?? 'vi');
 
+        if ($this->referrals->needsGate((int) $user['id']) && $data !== 'language' && $data !== 'support') {
+            $notice = null;
+            if ($data === 'referral_check') $notice = $this->referrals->checkGate((int) $user['id'], (int) $user['telegram_id']);
+            if ($this->referrals->needsGate((int) $user['id'])) {
+                $this->referralHandler->gate($chatId, $messageId, $lang, $notice);
+                return;
+            }
+            $this->start->show($chatId, $lang, $messageId);
+            return;
+        }
+
         if ($data === 'start' || str_starts_with($data, 'lang:')) $this->start->show($chatId, $lang, $messageId);
+        elseif ($data === 'referral') $this->referralHandler->show($chatId, $messageId, (int) $user['id'], $lang);
+        elseif ($data === 'referral_check') $this->start->show($chatId, $lang, $messageId);
         elseif ($data === 'language') $this->showLanguage($chatId, $messageId, $lang);
         elseif ($data === 'products') $this->products->list($chatId, $messageId, $lang);
         elseif ($data === 'support') $this->support->show($chatId, $messageId, $lang);
@@ -162,32 +187,30 @@ final class Router
         return $this->upsertUser($from);
     }
 
-    private function upsertUser(array $from): array
+    private function upsertUser(array $from, string $referralCode = ''): array
     {
-        $telegramId = (int) ($from['id'] ?? 0);
-        $rawData = json_encode($from, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        $this->db->execute(
-            'INSERT INTO users (telegram_id,username,first_name,last_name,language_code,is_premium,is_bot,raw_data)
-             VALUES (?,?,?,?,?,?,?,?)
-             ON DUPLICATE KEY UPDATE
-                username=VALUES(username),
-                first_name=VALUES(first_name),
-                last_name=VALUES(last_name),
-                language_code=VALUES(language_code),
-                is_premium=VALUES(is_premium),
-                is_bot=VALUES(is_bot),
-                raw_data=VALUES(raw_data)',
-            [
-                $telegramId,
-                $from['username'] ?? null,
-                $from['first_name'] ?? '',
-                $from['last_name'] ?? null,
-                $from['language_code'] ?? null,
-                !empty($from['is_premium']) ? 1 : 0,
-                !empty($from['is_bot']) ? 1 : 0,
-                $rawData === false ? null : $rawData,
-            ]
-        );
-        return $this->db->fetch('SELECT * FROM users WHERE telegram_id = ?', [$telegramId]);
+        return $this->db->transaction(function () use ($from, $referralCode): array {
+            $telegramId = (int) ($from['id'] ?? 0);
+            $created = $this->db->execute(
+                'INSERT INTO users(telegram_id) VALUES(?) ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)', [$telegramId]
+            ) === 1;
+            $rawData = json_encode($from, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            $this->db->execute(
+                'UPDATE users SET username=?,first_name=?,last_name=?,language_code=?,is_premium=?,is_bot=?,raw_data=? WHERE telegram_id=?',
+                [
+                    $from['username'] ?? null,
+                    $from['first_name'] ?? '',
+                    $from['last_name'] ?? null,
+                    $from['language_code'] ?? null,
+                    !empty($from['is_premium']) ? 1 : 0,
+                    !empty($from['is_bot']) ? 1 : 0,
+                    $rawData === false ? null : $rawData,
+                    $telegramId,
+                ]
+            );
+            $user = $this->db->fetch('SELECT * FROM users WHERE telegram_id = ?', [$telegramId]);
+            if ($created) $this->referrals->attach((int) $user['id'], $referralCode, !empty($from['is_bot']));
+            return $user;
+        });
     }
 }

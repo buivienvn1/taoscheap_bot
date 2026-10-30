@@ -296,6 +296,26 @@ input[type="submit"]:disabled {
     overflow-x: auto
 }
 
+.referral-table {
+    min-width: 1100px
+}
+
+.referral-table th {
+    min-width: 100px
+}
+
+.referral-table th:nth-child(4) {
+    min-width: 180px
+}
+
+.referral-table th:nth-child(6) {
+    min-width: 240px
+}
+
+.referral-table th:last-child {
+    min-width: 300px
+}
+
 .toolbar {
     display: flex;
     align-items: center;
