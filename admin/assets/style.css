@@ -255,9 +255,30 @@ input[type="submit"]:disabled {
     background: #dcfce7
 }
 
-.badge.muted {
+.badge.muted,
+.badge.order-status.cancelled {
     color: #475569;
     background: #e2e8f0
+}
+
+.badge.order-status.completed {
+    color: #166534;
+    background: #dcfce7
+}
+
+.badge.order-status.pending {
+    color: #92400e;
+    background: #fef3c7
+}
+
+.badge.order-status.processing {
+    color: #1e40af;
+    background: #dbeafe
+}
+
+.badge.order-status.failed {
+    color: #991b1b;
+    background: #fee2e2
 }
 
 .success-text {

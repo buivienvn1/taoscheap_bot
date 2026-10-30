@@ -22,7 +22,10 @@ try {
 
     do {
         try {
-            $result = ['hybrid_orders_expired' => $processor->expireHybridOrders(100)];
+            $result = [
+                'hybrid_orders_expired' => $processor->expireHybridOrders(100),
+                'direct_orders_expired' => $processor->expireDirectOrders(100),
+            ];
             $feed = $adapter->adapt($client->fetchPage(), $provider);
             $result += $service->run($feed);
             $result['notifications_sent'] = $outbox->retryBatch(100);

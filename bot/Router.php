@@ -25,7 +25,7 @@ final class Router
         $this->deposit = new DepositHandler($db, $telegram, $vietQr);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
-        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app, $stockFulfillment);
+        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app, $stockFulfillment, $supplierCatalog);
         $this->languages = ['vi' => new Language('vi'), 'en' => new Language('en')];
     }
 

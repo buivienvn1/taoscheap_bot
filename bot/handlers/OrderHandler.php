@@ -11,7 +11,8 @@ final class OrderHandler
         private Telegram $telegram,
         private VietQR $vietQr,
         private array $app,
-        private StockFulfillmentService $fulfillment
+        private StockFulfillmentService $fulfillment,
+        private SupplierCatalogService $supplierCatalog
     ) {
         $this->outbox = new NotificationOutbox($db, $telegram);
     }
@@ -47,6 +48,13 @@ final class OrderHandler
         );
         if ($variant === null) {
             $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'));
+            return;
+        }
+        $stock = $this->supplierCatalog->variantStock((int) $variant['id']);
+        if ($stock['available'] < $quantity) {
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('just_out_of_stock'), [[
+                ['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId],
+            ]]);
             return;
         }
         $unitPrice = number_format((float) $variant['price'], 2, '.', '');

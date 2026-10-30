@@ -95,7 +95,7 @@ final class ProfileHandler
     {
         $page = max(1, $page);
         $rows = $this->db->fetchAll(
-            'SELECT id,order_code,product_name FROM orders WHERE user_id=? ORDER BY id DESC LIMIT '
+            "SELECT id,order_code,product_name,quantity,amount,wallet_amount FROM orders WHERE user_id=? AND status='completed' ORDER BY id DESC LIMIT "
             . (self::HISTORY_PAGE_SIZE + 1) . ' OFFSET ' . (($page - 1) * self::HISTORY_PAGE_SIZE),
             [$userId]
         );
@@ -107,6 +107,8 @@ final class ProfileHandler
             $text .= "\n\n" . $lang->get('history_order_summary', [
                 'code' => Helpers::escape($row['order_code']),
                 'product' => Helpers::escape($row['product_name'] ?: '-'),
+                'quantity' => (int) $row['quantity'],
+                'amount' => Helpers::money((float) $row['amount'] + (float) $row['wallet_amount']),
             ]);
             $keyboard[] = [[
                 'text' => $lang->get('history_detail_button', ['code' => $row['order_code']]),
@@ -126,31 +128,24 @@ final class ProfileHandler
             $this->notFound($chatId, $messageId, 'orders:' . max(1, $page), $lang);
             return;
         }
-        $statusKey = 'order_status_' . $order['status'];
-        $time = Helpers::dateTime((string) ($order['completed_at'] ?: $order['created_at']));
-        $text = '<blockquote><b>' . $lang->get('order_history_detail_title') . "</b></blockquote>\n\n"
-            . 'Code: <code>' . Helpers::escape($order['order_code']) . "</code>\n"
-            . $lang->get('transaction_status') . ': ' . $lang->get($statusKey) . "\n"
-            . $lang->get('transaction_time') . ': ' . Helpers::escape($time) . "\n"
-            . $lang->get('product') . ': ' . Helpers::escape($order['product_name'] ?: '-') . "\n"
-            . $lang->get('quantity') . ': <b>' . (int) $order['quantity'] . "</b>\n"
-            . $lang->get('unit_price') . ': ' . Helpers::money($order['unit_price']) . "\n"
-            . $lang->get('total') . ': <b>' . Helpers::money((float) $order['amount'] + (float) $order['wallet_amount']) . "</b>\n"
-            . $lang->get('payment_method') . ': ' . $lang->get('payment_method_' . $order['payment_method']);
-        if ($order['payment_method'] === 'hybrid') {
-            $text .= "\n" . $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($order['wallet_amount'])]);
-            $text .= "\n" . $lang->get('payment_need_transfer_line', ['amount' => Helpers::money($order['amount'])]);
+        if ($order['status'] !== 'completed') {
+            $this->notFound($chatId, $messageId, 'orders:' . max(1, $page), $lang);
+            return;
         }
-        if ((float) $order['wallet_credited'] > 0) $text .= "\n" . $lang->get('wallet_credit') . ': ' . Helpers::money($order['wallet_credited']);
-        if ($order['status'] === 'completed') {
-            $deliveries = $this->db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);
-            if ($deliveries === [] && trim((string) $order['stock_content']) !== '') $deliveries = [['content' => $order['stock_content']]];
-            foreach ($deliveries as $index => $delivery) {
-                $safeContent = Helpers::escape(mb_substr((string) $delivery['content'], 0, 3000));
-                $section = "\n\n<b>" . $lang->get('delivery_item', ['number' => $index + 1]) . ":</b>\n<code>" . $safeContent . '</code>';
-                if (mb_strlen($text . $section) > 4000) break;
-                $text .= $section;
-            }
+        $text = $lang->get('order_result_success', [
+            'product' => Helpers::escape((string) ($order['product_name'] ?: '-')),
+            'quantity' => (int) $order['quantity'],
+            'amount' => Helpers::money((float) $order['amount'] + (float) $order['wallet_amount']),
+            'order' => Helpers::escape((string) $order['order_code']),
+            'time' => Helpers::dateTime((string) ($order['completed_at'] ?: $order['created_at'])),
+        ]);
+        $deliveries = $this->db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);
+        if ($deliveries === [] && trim((string) $order['stock_content']) !== '') $deliveries = [['content' => $order['stock_content']]];
+        foreach ($deliveries as $index => $delivery) {
+            $safeContent = Helpers::escape(mb_substr((string) $delivery['content'], 0, 3000));
+            $section = "\n\n<b>" . $lang->get('delivery_item', ['number' => $index + 1]) . ":</b>\n<code>" . $safeContent . '</code>';
+            if (mb_strlen($text . $section) > 4000) break;
+            $text .= $section;
         }
         $this->telegram->editMessage($chatId, $messageId, $text, [[
             ['text' => $lang->get('back'), 'callback_data' => 'orders:' . max(1, $page)],

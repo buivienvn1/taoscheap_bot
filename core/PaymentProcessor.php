@@ -131,6 +131,43 @@ final class PaymentProcessor
         return $expired;
     }
 
+    public function expireDirectOrders(int $limit = 100): int
+    {
+        $rows = $this->db->fetchAll(
+            "SELECT id FROM orders WHERE payment_method='vietqr_direct' AND status='pending' AND expires_at<=NOW() ORDER BY id LIMIT " . max(1, $limit)
+        );
+        $expired = 0;
+        foreach ($rows as $row) {
+            $didExpire = $this->db->transaction(function (Database $db) use ($row): bool {
+                $order = $db->fetch(
+                    "SELECT o.*,u.telegram_id,u.language FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE",
+                    [(int) $row['id']]
+                );
+                if ($order === null || $order['status'] !== 'pending' || $order['payment_method'] !== 'vietqr_direct'
+                    || $order['expires_at'] === null || strtotime((string) $order['expires_at']) > time()) {
+                    return false;
+                }
+                $db->execute("UPDATE orders SET status='cancelled',result_reason='expired',completed_at=NOW() WHERE id=?", [$order['id']]);
+                $this->outbox->enqueueRecipient(
+                    (int) $order['user_id'],
+                    'user',
+                    (int) $order['telegram_id'],
+                    (string) $order['language'],
+                    'order:' . $order['id'] . ':expired',
+                    'order_expired',
+                    [
+                        'order' => (string) $order['order_code'],
+                        'cleanup_request_type' => 'order',
+                        'cleanup_request_id' => (int) $order['id'],
+                    ]
+                );
+                return true;
+            });
+            if ($didExpire) $expired++;
+        }
+        return $expired;
+    }
+
     public static function normalizeAmount(mixed $value): ?string
     {
         if (is_float($value)) {
