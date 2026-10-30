@@ -82,23 +82,36 @@ $pageSize = 30;
 $where = ['1=1'];
 $params = [];
 if ($keyword !== '') {
-    $where[] = '(product_name LIKE ? OR remote_product_code LIKE ?)';
+    $where[] = '(sp.product_name LIKE ? OR sp.remote_product_code LIKE ?)';
     $like = '%' . $keyword . '%';
     $params[] = $like;
     $params[] = $like;
 }
 if ($providerFilter !== '' && isset($providerNames[$providerFilter])) {
-    $where[] = 'provider_key=?';
+    $where[] = 'sp.provider_key=?';
     $params[] = $providerFilter;
 }
-if ($inStockOnly) $where[] = 'is_active=1 AND is_available=1 AND stock>0';
-$countRow = $db->fetch('SELECT COUNT(*) total FROM supplier_products WHERE ' . implode(' AND ', $where), $params);
+if ($inStockOnly) $where[] = 'sp.is_active=1 AND sp.is_available=1 AND sp.stock>0';
+$countRow = $db->fetch('SELECT COUNT(*) total FROM supplier_products sp WHERE ' . implode(' AND ', $where), $params);
 $total = (int) ($countRow['total'] ?? 0);
 $totalPages = max(1, (int) ceil($total / $pageSize));
 $pageNumber = min($pageNumber, $totalPages);
 $offset = ($pageNumber - 1) * $pageSize;
 $catalog = $db->fetchAll(
-    'SELECT * FROM supplier_products WHERE ' . implode(' AND ', $where) . ' ORDER BY is_active DESC,is_available DESC,product_name,provider_key LIMIT ' . $pageSize . ' OFFSET ' . $offset,
+    "SELECT sp.*,ss.id linked_source_id,p.name linked_product_name,v.price sale_price
+     FROM supplier_products sp
+     LEFT JOIN supplier_sources ss ON ss.id=(
+         SELECT linked.id FROM supplier_sources linked
+         WHERE linked.source_type='api' AND linked.status=1
+           AND linked.provider_key=sp.provider_key
+           AND linked.remote_product_code=sp.remote_product_code
+         ORDER BY linked.priority,linked.id LIMIT 1
+     )
+     LEFT JOIN variants v ON v.id=ss.variant_id
+     LEFT JOIN products p ON p.id=v.product_id
+     WHERE " . implode(' AND ', $where) . '
+     ORDER BY sp.is_active DESC,sp.is_available DESC,sp.product_name,sp.provider_key
+     LIMIT ' . $pageSize . ' OFFSET ' . $offset,
     $params
 );
 $products = $db->fetchAll('SELECT id,name FROM products ORDER BY sort_order,id');
@@ -163,7 +176,7 @@ if ($selected !== []) {
     <h3><?= e($t('admin_supplier_catalog')) ?></h3>
     <form method="get" class="supplier-search"><input type="hidden" name="page" value="suppliers"><input name="q" value="<?= e($keyword) ?>" placeholder="<?= e($t('admin_supplier_search_placeholder')) ?>"><select name="provider"><option value=""><?= e($t('admin_supplier_all_providers')) ?></option><?php foreach ($providerNames as $key => $name): ?><option value="<?= e($key) ?>" <?= $providerFilter === $key ? 'selected' : '' ?>><?= e($name) ?></option><?php endforeach; ?></select><label class="supplier-stock-filter"><input type="checkbox" name="in_stock" value="1" <?= $inStockOnly ? 'checked' : '' ?>><span><?= e($t('admin_supplier_in_stock_only')) ?></span></label><button type="submit"><?= e($t('admin_search')) ?></button></form>
     <form method="get"><input type="hidden" name="page" value="suppliers"><input type="hidden" name="q" value="<?= e($keyword) ?>"><input type="hidden" name="provider" value="<?= e($providerFilter) ?>"><?php if ($inStockOnly): ?><input type="hidden" name="in_stock" value="1"><?php endif; ?><?php foreach ($preservedSelected as $selectedId): ?><input type="hidden" name="compare[]" value="<?= e($selectedId) ?>"><?php endforeach; ?><div class="table-wrap"><table><thead><tr><th></th><th><?= e($t('admin_supplier_provider')) ?></th><th><?= e($t('admin_supplier_remote_product')) ?></th><th><?= e($t('admin_supplier_stock')) ?></th><th><?= e($t('admin_supplier_original_price')) ?></th><th><?= e($t('admin_supplier_vnd_price')) ?></th><th><?= e($t('admin_status')) ?></th></tr></thead><tbody>
-    <?php foreach ($catalog as $item): $effectiveStock = $supplierCatalog->effectiveStock($item, $usdtBalances[(string) $item['provider_key']] ?? 0.0); ?><tr><td><input type="checkbox" name="compare[]" value="<?= e($item['id']) ?>" <?= in_array((int) $item['id'], $selected, true) ? 'checked' : '' ?>></td><td><?= e($providerNames[$item['provider_key']] ?? $item['provider_key']) ?></td><td><strong><?= e($item['product_name']) ?></strong><br><code><?= e($item['remote_product_code']) ?></code></td><td><strong class="supplier-stock-value"><?= e($item['stock']) ?></strong><br><small class="help-text supplier-effective-stock">(~ <?= e($effectiveStock) ?>)</small></td><td><?= $item['unit_price'] === null ? '—' : e(Helpers::formatDecimal($item['unit_price']) . ' USDT') ?></td><td><?= $item['price_vnd'] === null ? '—' : e(number_format((float) $item['price_vnd'], 0, ',', '.') . ' VND') ?></td><td><span class="badge <?= (int) $item['is_active'] === 1 ? 'success' : 'muted' ?>"><?= e($t((int) $item['is_active'] === 1 ? 'admin_supplier_active' : 'admin_supplier_removed')) ?></span></td></tr><?php endforeach; ?>
+    <?php foreach ($catalog as $item): $effectiveStock = $supplierCatalog->effectiveStock($item, $usdtBalances[(string) $item['provider_key']] ?? 0.0); $isLinked = $item['linked_source_id'] !== null; $profit = $isLinked && $item['price_vnd'] !== null ? (float) $item['sale_price'] - (float) $item['price_vnd'] : null; ?><tr><td><input type="checkbox" name="compare[]" value="<?= e($item['id']) ?>" <?= in_array((int) $item['id'], $selected, true) ? 'checked' : '' ?>></td><td><?= e($providerNames[$item['provider_key']] ?? $item['provider_key']) ?></td><td><strong><?= e($item['product_name']) ?></strong><br><code><?= e($item['remote_product_code']) ?></code></td><td><strong class="supplier-stock-value"><?= e($item['stock']) ?></strong><br><small class="help-text supplier-effective-stock">(~ <?= e($effectiveStock) ?>)</small></td><td><?= $item['unit_price'] === null ? '—' : e(Helpers::formatDecimal($item['unit_price']) . ' USDT') ?></td><td><?= $item['price_vnd'] === null ? '—' : e(number_format((float) $item['price_vnd'], 0, ',', '.') . ' VND') ?></td><td><span class="badge <?= $isLinked ? 'success' : 'muted' ?>"><?= e($t($isLinked ? 'admin_supplier_active' : 'admin_supplier_removed')) ?></span><?php if ($isLinked): ?><br><small class="help-text"><?= e($t('admin_supplier_linked_product_profit', ['product' => (string) $item['linked_product_name'], 'profit' => Helpers::money((float) $profit)])) ?></small><?php endif; ?></td></tr><?php endforeach; ?>
     <?php if ($catalog === []): ?><tr><td colspan="7"><?= e($t('admin_supplier_empty_catalog')) ?></td></tr><?php endif; ?>
     </tbody></table></div><div class="toolbar"><button type="submit"><?= e($t('admin_supplier_compare_selected')) ?></button><span><?= e($t('admin_pagination', ['current' => $pageNumber, 'total' => $totalPages])) ?></span><?php if ($pageNumber > 1): ?><a class="button secondary" href="<?= e($paginationQuery($pageNumber - 1)) ?>"><?= e($t('admin_previous')) ?></a><?php endif; ?><?php if ($pageNumber < $totalPages): ?><a class="button secondary" href="<?= e($paginationQuery($pageNumber + 1)) ?>"><?= e($t('admin_next')) ?></a><?php endif; ?></div></form>
 </section>
