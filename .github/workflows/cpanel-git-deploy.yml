@@ -70,22 +70,20 @@ jobs:
             exit 1
           fi
 
-          sse_url="$(jq -r '.data.sse_url // empty' "$response_file")"
           task_id="$(jq -r '.data.task_id // empty' "$response_file")"
-          if [ -z "$sse_url" ] || [ -z "$task_id" ]; then
-            echo "::error::Deployment response did not contain sse_url/task_id."
+          log_path="$(jq -r '.data.log_path // empty' "$response_file")"
+          if [ -z "$task_id" ]; then
+            echo "::error::Deployment response did not contain task_id."
             exit 1
           fi
 
-          echo "Running cPanel task ${task_id} through ${sse_url}"
-          sse_log="$(mktemp)"
-          curl --silent --show-error --no-buffer \
-            --max-time 180 \
-            --header "Authorization: cpanel ${CPANEL_USERNAME}:${CPANEL_API_TOKEN}" \
-            "https://${host}:${CPANEL_PORT}${sse_url}" \
-            | tee "$sse_log" || true
-
-          echo "cPanel task stream ended; production SHA verification will determine deployment success."
+          # The sse_url returned by this API requires a browser session and responds
+          # with HTTP 403 to API-token authentication. Do not treat that endpoint as
+          # a task monitor; the public commit marker below is the deployment contract.
+          echo "cPanel accepted deployment task ${task_id}."
+          if [ -n "$log_path" ]; then
+            echo "cPanel task log: ${log_path}"
+          fi
 
       - name: Verify deployed commit on production
         env:
@@ -93,19 +91,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 12); do
-            deployed_sha="$(curl --silent --show-error --fail \
-              --header 'Cache-Control: no-cache' \
-              "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" 2>/dev/null \
-              | tr -d '\r\n[:space:]' || true)"
+          max_attempts=60
+          delay_seconds=10
+          last_http_code=""
+          for attempt in $(seq 1 "$max_attempts"); do
+            marker_file="$(mktemp)"
+            last_http_code="$(curl --silent --show-error \
+              --output "$marker_file" \
+              --write-out '%{http_code}' \
+              --header 'Cache-Control: no-cache, no-store' \
+              "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
+            deployed_sha="$(tr -d '\r\n[:space:]' < "$marker_file")"
+            rm -f "$marker_file"
 
-            echo "Verification ${attempt}/12: expected=${GITHUB_SHA}, deployed=${deployed_sha:-not available}"
-            if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
+            echo "Verification ${attempt}/${max_attempts}: HTTP ${last_http_code:-000}, expected=${GITHUB_SHA}, deployed=${deployed_sha:-not available}"
+            if [ "$last_http_code" = "200" ] && [ "$deployed_sha" = "$GITHUB_SHA" ]; then
               echo "Production deployment verified successfully."
               exit 0
             fi
-            sleep 5
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep "$delay_seconds"
+            fi
           done
 
-          echo "::error::Production does not contain commit ${GITHUB_SHA}."
+          echo "::error::Production did not expose commit ${GITHUB_SHA} within $((max_attempts * delay_seconds)) seconds (last HTTP status: ${last_http_code:-000}). Check the cPanel deployment task log."
           exit 1
