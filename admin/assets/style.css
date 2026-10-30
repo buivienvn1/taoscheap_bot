@@ -406,6 +406,11 @@ input[type="submit"]:disabled {
     gap: 10px
 }
 
+.supplier-search {
+    align-items: center;
+    margin-bottom: 14px
+}
+
 .rate-actions {
     align-items: end
 }
@@ -419,7 +424,7 @@ input[type="submit"]:disabled {
 }
 
 .rate-form input,
-.supplier-search input,
+.supplier-search input:not([type="checkbox"]),
 .supplier-search select,
 .assign-source-form select {
     height: 36px;
@@ -432,6 +437,32 @@ input[type="submit"]:disabled {
 
 .supplier-search select {
     flex: 0 1 220px
+}
+
+.supplier-stock-filter {
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    white-space: nowrap;
+    cursor: pointer
+}
+
+.supplier-stock-filter input {
+    flex: 0 0 auto
+}
+
+.supplier-stock-value {
+    font-size: 16px;
+    color: #0f172a
+}
+
+.supplier-effective-stock {
+    margin: 3px 0 0
 }
 
 .assign-source-form select {
@@ -499,8 +530,9 @@ input[type="submit"]:disabled {
     }
 
     .rate-form label,
-    .supplier-search input,
+    .supplier-search input:not([type="checkbox"]),
     .supplier-search select,
+    .supplier-stock-filter,
     .assign-source-form select,
     .rate-form button,
     .supplier-search button,
