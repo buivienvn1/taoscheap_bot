@@ -317,4 +317,7 @@ return [
     'admin_stock_empty' => 'No products yet.',
     'admin_stock_select_product' => 'Select supplier product',
     'admin_stock_missing_product' => 'Existing code is no longer in the catalog',
+    'admin_product_fake_sold' => 'Fake sold count (+)',
+    'admin_product_fake_sold_help' => 'Count added to sold quantity displayed on bot.',
+    'admin_stock_fake_sold_badge' => '(+:count fake)',
 ];

@@ -200,9 +200,9 @@ foreach ($remoteProducts as $remoteProduct) {
     $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
 $summary = $db->fetchAll(
-    'SELECT p.id,p.name,p.source_variant_id,COALESCE(SUM(s.is_sold=1),0) sold
+    'SELECT p.id,p.name,p.source_variant_id,p.fake_sold,COALESCE(SUM(s.is_sold=1),0) sold
      FROM products p JOIN variants v ON v.id=p.source_variant_id LEFT JOIN stocks s ON s.variant_id=v.id
-     GROUP BY p.id,p.name,p.source_variant_id ORDER BY p.sort_order,p.id'
+     GROUP BY p.id,p.name,p.source_variant_id,p.fake_sold ORDER BY p.sort_order,p.id'
 );
 $summaryStock = $supplierCatalog->variantStockMap(array_map(static fn (array $item): int => (int) $item['source_variant_id'], $summary));
 foreach ($summary as &$summaryItem) {
@@ -247,7 +247,7 @@ $stockRows = $db->fetchAll($sql, $params);
     <div class="table-wrap"><table>
         <thead><tr><th><?= e($stockText('admin_stock_product')) ?></th><th><?= e($stockText('admin_stock_available')) ?></th><th><?= e($stockText('admin_stock_sold')) ?></th><th><?= e($stockText('admin_stock_action')) ?></th></tr></thead>
         <tbody><?php foreach ($summary as $item): ?><tr>
-            <td><?= e($item['name']) ?></td><td><strong><?= e($item['available']) ?></strong><?php if ($item['api_provider_name'] !== null): ?> <small>(<?= e($item['api_provider_name']) ?>: <?= e($item['api_available']) ?>)</small><?php endif; ?><br><small><?= e($stockText('admin_stock_manual_count')) ?>: <?= e($item['manual_available']) ?></small></td><td><?= e($item['sold']) ?></td>
+            <td><?= e($item['name']) ?></td><td><strong><?= e($item['available']) ?></strong><?php if ($item['api_provider_name'] !== null): ?> <small>(<?= e($item['api_provider_name']) ?>: <?= e($item['api_available']) ?>)</small><?php endif; ?><br><small><?= e($stockText('admin_stock_manual_count')) ?>: <?= e($item['manual_available']) ?></small></td><td><?= e($item['sold']) ?><?php if ((int) ($item['fake_sold'] ?? 0) > 0): ?> <small><?= e($stockText('admin_stock_fake_sold_badge', ['count' => (int) $item['fake_sold']])) ?></small><?php endif; ?></td>
             <td><form method="post" onsubmit="return confirm('<?= e($stockText('admin_stock_delete_confirm')) ?>')"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="delete_available"><input type="hidden" name="product_id" value="<?= e($item['id']) ?>"><button type="submit" class="danger"><?= e($stockText('admin_stock_delete_available')) ?></button></form></td>
         </tr><?php endforeach; ?><?php if ($summary === []): ?><tr><td colspan="4"><?= e($stockText('admin_stock_empty')) ?></td></tr><?php endif; ?></tbody>
     </table></div>

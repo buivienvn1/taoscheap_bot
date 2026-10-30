@@ -317,4 +317,7 @@ return [
     'admin_stock_empty' => 'Chưa có sản phẩm.',
     'admin_stock_select_product' => 'Chọn sản phẩm nhà cung cấp',
     'admin_stock_missing_product' => 'Mã cũ không còn trong danh mục',
+    'admin_product_fake_sold' => 'Đã bán ảo (+)',
+    'admin_product_fake_sold_help' => 'Số lượng cộng thêm vào số đã bán khi hiển thị trên bot.',
+    'admin_stock_fake_sold_badge' => '(+:count ảo)',
 ];

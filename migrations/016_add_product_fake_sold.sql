@@ -1,0 +1,1 @@
+ALTER TABLE products ADD COLUMN fake_sold INT UNSIGNED NOT NULL DEFAULT 0 AFTER sort_order;

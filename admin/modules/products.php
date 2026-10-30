@@ -57,20 +57,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $features = trim((string) ($_POST['features'] ?? ''));
     $price = number_format(max(0, (float) ($_POST['price'] ?? 0)), 2, '.', '');
     $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+    $fakeSold = max(0, (int) ($_POST['fake_sold'] ?? 0));
     $status = isset($_POST['status']) ? 1 : 0;
     if ($name === '') {
         redirectAdmin('products', 'Tên sản phẩm không hợp lệ.');
     }
 
-    $db->transaction(function (Database $db) use ($id, $name, $description, $features, $price, $sortOrder, $status): void {
+    $db->transaction(function (Database $db) use ($id, $name, $description, $features, $price, $sortOrder, $fakeSold, $status): void {
         if ($id > 0) {
             $product = $db->fetch('SELECT * FROM products WHERE id=? FOR UPDATE', [$id]);
             if ($product === null) {
                 return;
             }
             $db->execute(
-                'UPDATE products SET name=?,description=?,features=?,sort_order=?,status=? WHERE id=?',
-                [$name, $description, $features, $sortOrder, $status, $id]
+                'UPDATE products SET name=?,description=?,features=?,sort_order=?,fake_sold=?,status=? WHERE id=?',
+                [$name, $description, $features, $sortOrder, $fakeSold, $status, $id]
             );
             if ($product['source_variant_id'] !== null) {
                 $db->execute(
@@ -82,8 +83,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $db->execute(
-            'INSERT INTO products(name,description,features,sort_order,status) VALUES(?,?,?,?,?)',
-            [$name, $description, $features, $sortOrder, $status]
+            'INSERT INTO products(name,description,features,sort_order,fake_sold,status) VALUES(?,?,?,?,?,?)',
+            [$name, $description, $features, $sortOrder, $fakeSold, $status]
         );
         $productId = $db->lastInsertId();
         $db->execute(
@@ -132,6 +133,7 @@ $form = $editing ?? [];
         <div class="form-grid">
             <div><label for="product_price">Giá</label><input id="product_price" name="price" type="number" min="0" step="0.01" value="<?= e($form['price'] ?? '') ?>" required></div>
             <div><label for="sort_order">Thứ tự</label><input id="sort_order" name="sort_order" type="number" value="<?= e($form['sort_order'] ?? 0) ?>"></div>
+            <div><label for="fake_sold"><?= e(Language::get('admin_product_fake_sold')) ?></label><input id="fake_sold" name="fake_sold" type="number" min="0" step="1" value="<?= e($form['fake_sold'] ?? 0) ?>" title="<?= e(Language::get('admin_product_fake_sold_help')) ?>"></div>
         </div>
         <label class="inline-check"><input type="checkbox" name="status" <?= !isset($form['status']) || (int) $form['status'] === 1 ? 'checked' : '' ?>> Hiển thị sản phẩm</label>
         <div class="actions">
@@ -143,7 +145,7 @@ $form = $editing ?? [];
 
 <div class="card table-wrap">
     <table>
-        <thead><tr><th>Sản phẩm</th><th>Giá</th><th>Kho tay</th><th>Đơn</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+        <thead><tr><th>Sản phẩm</th><th>Giá</th><th>Kho tay</th><th>Đơn</th><th><?= e(Language::get('admin_product_fake_sold')) ?></th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
         <tbody>
         <?php foreach ($products as $product): ?>
             <tr>
@@ -151,6 +153,7 @@ $form = $editing ?? [];
                 <td><?= e(Helpers::money($product['price'] ?? 0)) ?></td>
                 <td><?= e($product['available']) ?></td>
                 <td><?= e($product['order_count']) ?></td>
+                <td><?= (int) ($product['fake_sold'] ?? 0) > 0 ? '+' . e($product['fake_sold']) : '0' ?></td>
                 <td><span class="badge <?= (int) $product['status'] === 1 ? 'success' : 'muted' ?>"><?= (int) $product['status'] === 1 ? 'Đang bán' : 'Đã ẩn' ?></span></td>
                 <td>
                     <div class="actions">

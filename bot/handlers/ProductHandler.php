@@ -146,7 +146,7 @@ final class ProductHandler
         Language $lang
     ): void {
         $product = $this->db->fetch(
-            "SELECT p.id,p.name,p.description,p.features,v.id variant_id,v.price,COALESCE(sold.total,0) sold
+            "SELECT p.id,p.name,p.description,p.features,p.fake_sold,v.id variant_id,v.price,COALESCE(sold.total,0) sold
              FROM products p
              JOIN variants v ON v.id=p.source_variant_id AND v.status=1
              LEFT JOIN (SELECT variant_id,COUNT(*) total FROM stocks WHERE is_sold=1 GROUP BY variant_id) sold ON sold.variant_id=v.id
@@ -168,6 +168,7 @@ final class ProductHandler
             $quantity = $displayQuantity;
         }
         $total = number_format((float) $product['price'] * $quantity, 2, '.', '');
+        $soldCount = (int) $product['sold'] + (int) ($product['fake_sold'] ?? 0);
         $descriptionParts = array_values(array_filter([
             Helpers::extractMultilingualText((string) $product['description'], $lang->code()),
             Helpers::extractMultilingualText((string) $product['features'], $lang->code()),
@@ -180,7 +181,7 @@ final class ProductHandler
             . '<b>📦 ' . Helpers::escape($product['name']) . "</b>\n"
             . '╰ ' . $lang->get('price') . ': <b>' . Helpers::money($product['price']) . "</b>\n"
             . '╰ ' . $lang->get('stock') . ': <b>' . $stock . "</b>\n"
-            . '╰ ' . $lang->get('sold') . ': <b>' . (int) $product['sold'] . "</b>\n\n"
+            . '╰ ' . $lang->get('sold') . ': <b>' . $soldCount . "</b>\n\n"
             . '<b>' . $lang->get('description') . "</b>\n" . $description . "\n\n"
             . '<b>' . $lang->get('order_details') . "</b>\n"
             . '╰ ' . $lang->get('quantity') . ': <b>' . $quantity . "</b>\n"
