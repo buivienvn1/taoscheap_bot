@@ -34,6 +34,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
     $action = (string) ($_POST['action'] ?? 'import');
 
+    if ($action === 'save_product') {
+        $productId = max(0, (int) ($_POST['id'] ?? 0));
+        $name = trim((string) ($_POST['name'] ?? ''));
+        $description = trim((string) ($_POST['description'] ?? ''));
+        $features = trim((string) ($_POST['features'] ?? ''));
+        $price = number_format(max(0, (float) ($_POST['price'] ?? 0)), 2, '.', '');
+        $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+        $fakeSold = max(0, (int) ($_POST['fake_sold'] ?? 0));
+        $status = isset($_POST['status']) ? 1 : 0;
+        if ($name === '') {
+            redirectAdmin('stocks', $stockText('admin_stock_product_name_invalid'));
+        }
+        $db->transaction(function (Database $db) use ($productId, $name, $description, $features, $price, $sortOrder, $fakeSold, $status): void {
+            if ($productId > 0) {
+                $product = $db->fetch('SELECT source_variant_id FROM products WHERE id=? FOR UPDATE', [$productId]);
+                if ($product === null) return;
+                $db->execute('UPDATE products SET name=?,description=?,features=?,sort_order=?,fake_sold=?,status=? WHERE id=?', [$name, $description, $features, $sortOrder, $fakeSold, $status, $productId]);
+                if ($product['source_variant_id'] !== null) {
+                    $db->execute('UPDATE variants SET name=?,price=?,status=?,sort_order=0 WHERE id=?', [$name, $price, $status, $product['source_variant_id']]);
+                }
+                return;
+            }
+            $db->execute('INSERT INTO products(name,description,features,sort_order,fake_sold,status) VALUES(?,?,?,?,?,?)', [$name, $description, $features, $sortOrder, $fakeSold, $status]);
+            $newProductId = $db->lastInsertId();
+            $db->execute("INSERT INTO variants(product_id,name,price,supplier_type,provider_code,sort_order,status) VALUES(?,?,?,'manual',NULL,0,?)", [$newProductId, $name, $price, $status]);
+            $variantId = $db->lastInsertId();
+            $db->execute('UPDATE products SET source_variant_id=? WHERE id=?', [$variantId, $newProductId]);
+            $db->execute("INSERT INTO supplier_sources(variant_id,source_type,priority,status) VALUES(?,'manual',0,1)", [$variantId]);
+        });
+        redirectAdmin('stocks', $stockText('admin_stock_product_saved'));
+    }
+
+    if (($action === 'toggle_product' || $action === 'delete_product') && ($productId = max(0, (int) ($_POST['id'] ?? 0))) > 0) {
+        if ($action === 'toggle_product') {
+            $db->transaction(function (Database $db) use ($productId): void {
+                $product = $db->fetch('SELECT status FROM products WHERE id=? FOR UPDATE', [$productId]);
+                if ($product === null) return;
+                $status = (int) $product['status'] === 1 ? 0 : 1;
+                $db->execute('UPDATE products SET status=? WHERE id=?', [$status, $productId]);
+                $db->execute('UPDATE variants SET status=? WHERE product_id=?', [$status, $productId]);
+            });
+            redirectAdmin('stocks', $stockText('admin_stock_product_saved'));
+        }
+        $db->transaction(function (Database $db) use ($productId): void {
+            $product = $db->fetch('SELECT * FROM products WHERE id=? FOR UPDATE', [$productId]);
+            if ($product === null) return;
+            $reference = $db->fetch('SELECT 1 FROM variants v WHERE v.product_id=? AND (EXISTS (SELECT 1 FROM orders o WHERE o.variant_id=v.id) OR EXISTS (SELECT 1 FROM purchase_requests pr WHERE pr.variant_id=v.id)) LIMIT 1', [$productId]);
+            if ($reference !== null) {
+                $db->execute('UPDATE products SET status=0 WHERE id=?', [$productId]);
+                $db->execute('UPDATE variants SET status=0 WHERE product_id=?', [$productId]);
+                return;
+            }
+            $db->execute('DELETE s FROM stocks s JOIN variants v ON v.id=s.variant_id WHERE v.product_id=?', [$productId]);
+            $db->execute('UPDATE products SET source_variant_id=NULL WHERE id=?', [$productId]);
+            $db->execute('DELETE FROM variants WHERE product_id=?', [$productId]);
+            $db->execute('DELETE FROM products WHERE id=?', [$productId]);
+        });
+        redirectAdmin('stocks', $stockText('admin_stock_product_saved'));
+    }
+
     if ($action === 'refresh_inventory') {
         $result = $supplierCatalog->refreshInventory();
         $respond($result['success'], $stockText($result['success'] ? 'admin_stock_refresh_success' : 'admin_stock_refresh_partial'), $result);
@@ -174,7 +234,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $products = $db->fetchAll(
-    "SELECT p.id,p.name,p.source_variant_id FROM products p JOIN variants v ON v.id=p.source_variant_id ORDER BY p.sort_order,p.id"
+    "SELECT p.id,p.name,p.description,p.features,p.fake_sold,p.status,p.sort_order,p.source_variant_id,v.price
+     FROM products p JOIN variants v ON v.id=p.source_variant_id ORDER BY p.sort_order,p.id"
 );
 $manualProducts = $db->fetchAll(
     "SELECT p.id,p.name FROM products p
@@ -202,7 +263,8 @@ foreach ($remoteProducts as $remoteProduct) {
     $remoteProductsByKey[$providerKey . "\0" . $remoteCode] = $remoteProduct;
 }
 $summary = $db->fetchAll(
-    'SELECT p.id,p.name,p.source_variant_id,p.fake_sold,COALESCE(sold.total,0) sold
+    'SELECT p.id,p.name,p.description,p.features,p.status,p.sort_order,p.source_variant_id,p.fake_sold,v.price,COALESCE(sold.total,0) sold,
+            (SELECT COUNT(*) FROM orders o2 JOIN variants ov ON ov.id=o2.variant_id WHERE ov.product_id=p.id) order_count
      FROM products p
      JOIN variants v ON v.id=p.source_variant_id
      LEFT JOIN (SELECT variant_id,COALESCE(SUM(quantity),0) total FROM orders WHERE status=\'completed\' GROUP BY variant_id) sold ON sold.variant_id=v.id
@@ -237,6 +299,20 @@ foreach ($products as $product) {
     ];
 }
 
+$productModalData = [];
+foreach ($summary as $item) {
+    $productModalData[(string) $item['id']] = [
+        'id' => (int) $item['id'],
+        'name' => (string) $item['name'],
+        'description' => (string) ($item['description'] ?? ''),
+        'features' => (string) ($item['features'] ?? ''),
+        'price' => (string) ($item['price'] ?? '0'),
+        'sort_order' => (int) ($item['sort_order'] ?? 0),
+        'fake_sold' => (int) ($item['fake_sold'] ?? 0),
+        'status' => (int) ($item['status'] ?? 0) === 1,
+    ];
+}
+
 if ($editId > 0) {
     $editing = $db->fetch(
         'SELECT s.id,s.content,p.name product_name FROM stocks s JOIN variants v ON v.id=s.variant_id JOIN products p ON p.id=v.product_id WHERE s.id=? AND s.is_sold=0',
@@ -264,20 +340,21 @@ if ($where !== []) {
 $sql .= ' ORDER BY s.id DESC LIMIT 300';
 $stockRows = $db->fetchAll($sql, $params);
 ?>
-<h1>Kho hàng</h1>
-<nav class="stock-tabs" aria-label="Kho hàng">
+<h1>Sản phẩm & Kho hàng</h1>
+<nav class="stock-tabs" aria-label="Sản phẩm và kho hàng">
     <a href="#overview" data-stock-tab="overview"><?= e($stockText('admin_stock_tab_overview')) ?></a>
     <a href="#details" data-stock-tab="details"><?= e($stockText('admin_stock_tab_details')) ?></a>
 </nav>
 <section data-stock-panel="overview">
 <div class="card">
-    <div class="card-heading"><h3><?= e($stockText('admin_stock_overview')) ?></h3><form method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="refresh_inventory"><button type="submit"><?= e($stockText('admin_stock_refresh_inventory')) ?></button></form></div>
+    <div class="card-heading"><h3><?= e($stockText('admin_stock_overview')) ?></h3><div class="actions"><button type="button" data-open-stock-modal="product" data-product-id="0"><?= e($stockText('admin_stock_add_product')) ?></button><form method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="refresh_inventory"><button type="submit" class="secondary"><?= e($stockText('admin_stock_refresh_inventory')) ?></button></form></div></div>
     <div class="table-wrap"><table>
-        <thead><tr><th><?= e($stockText('admin_stock_product')) ?></th><th><?= e($stockText('admin_stock_available')) ?></th><th><?= e($stockText('admin_stock_sold')) ?></th><th><?= e($stockText('admin_stock_action')) ?></th></tr></thead>
+        <thead><tr><th><?= e($stockText('admin_stock_product')) ?></th><th><?= e($stockText('admin_stock_product_price_column')) ?></th><th><?= e($stockText('admin_stock_product_manual_column')) ?></th><th><?= e($stockText('admin_stock_product_api_column')) ?></th><th><?= e($stockText('admin_stock_product_orders_column')) ?></th><th><?= e($stockText('admin_stock_product_fake_sold_column')) ?></th><th><?= e($stockText('admin_stock_product_actions')) ?></th></tr></thead>
         <tbody><?php foreach ($summary as $item): ?><tr data-product-row="<?= e($item['id']) ?>">
-            <td><?= e($item['name']) ?></td><td><strong><?= e($item['available']) ?></strong><?php if ($item['api_provider_name'] !== null): ?> <small>(<?= e($item['api_provider_name']) ?>: <?= e($item['api_available']) ?>)</small><?php endif; ?><br><small><?= e($stockText('admin_stock_manual_count')) ?>: <?= e($item['manual_available']) ?></small></td><td><?= e($item['sold']) ?><?php if ((int) ($item['fake_sold'] ?? 0) > 0): ?> <small><?= e($stockText('admin_stock_fake_sold_badge', ['count' => (int) $item['fake_sold']])) ?></small><?php endif; ?></td>
-            <td><div class="actions"><button type="button" data-open-stock-modal="import" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_btn_import')) ?></button><button type="button" class="secondary" data-open-stock-modal="source" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_btn_config_api')) ?></button><form method="post" onsubmit="return confirm('<?= e($stockText('admin_stock_delete_confirm')) ?>')"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="delete_available"><input type="hidden" name="product_id" value="<?= e($item['id']) ?>"><button type="submit" class="danger"><?= e($stockText('admin_stock_delete_available')) ?></button></form></div></td>
-        </tr><?php endforeach; ?><?php if ($summary === []): ?><tr><td colspan="4"><?= e($stockText('admin_stock_empty')) ?></td></tr><?php endif; ?></tbody>
+            <td><strong><?= e($item['name']) ?></strong><br><span class="badge <?= (int) $item['status'] === 1 ? 'success' : 'muted' ?>"><?= e($stockText((int) $item['status'] === 1 ? 'admin_stock_product_status_visible' : 'admin_stock_product_status_hidden')) ?></span></td>
+            <td><?= e(Helpers::money($item['price'] ?? 0)) ?></td><td><strong><?= e($item['manual_available']) ?></strong></td><td><strong><?= e($item['api_available']) ?></strong><?php if ($item['api_provider_name'] !== null): ?><br><small><?= e($item['api_provider_name']) ?></small><?php endif; ?></td><td><?= e($item['order_count']) ?><br><small><?= e($stockText('admin_stock_sold')) ?>: <?= e($item['sold']) ?></small></td><td><?= e($item['fake_sold']) ?></td>
+            <td><div class="actions"><button type="button" data-open-stock-modal="product" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_product_open_edit')) ?></button><button type="button" class="secondary" data-open-stock-modal="import" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_btn_import')) ?></button><button type="button" class="secondary" data-open-stock-modal="source" data-product-id="<?= e($item['id']) ?>"><?= e($stockText('admin_stock_btn_config_api')) ?></button><form method="post"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="toggle_product"><input type="hidden" name="id" value="<?= e($item['id']) ?>"><button type="submit" class="secondary"><?= e($stockText('admin_stock_product_toggle')) ?></button></form><form method="post" onsubmit="return confirm('<?= e($stockText('admin_stock_product_delete_confirm')) ?>')"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="delete_product"><input type="hidden" name="id" value="<?= e($item['id']) ?>"><button type="submit" class="danger"><?= e($stockText('admin_stock_product_delete')) ?></button></form></div></td>
+        </tr><?php endforeach; ?><?php if ($summary === []): ?><tr><td colspan="7"><?= e($stockText('admin_stock_empty')) ?></td></tr><?php endif; ?></tbody>
     </table></div>
 </div>
 </section>
@@ -388,6 +465,15 @@ $stockRows = $db->fetchAll($sql, $params);
     <div class="stock-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="stock-modal-title">
         <div class="stock-modal-header"><h2 id="stock-modal-title"></h2><button type="button" class="secondary" data-close-stock-modal><?= e($stockText('admin_stock_modal_close')) ?></button></div>
         <div class="stock-modal-body">
+            <form method="post" id="stock-product-form">
+                <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" id="stock-product-id">
+                <label for="stock-product-name"><?= e($stockText('admin_stock_product_name')) ?></label><input id="stock-product-name" name="name" required>
+                <label for="stock-product-description"><?= e($stockText('admin_stock_product_description')) ?></label><textarea id="stock-product-description" name="description" rows="5"></textarea>
+                <label for="stock-product-features"><?= e($stockText('admin_stock_product_features')) ?></label><textarea id="stock-product-features" name="features" rows="5"></textarea>
+                <div class="form-grid"><div><label for="stock-product-price"><?= e($stockText('admin_stock_product_price')) ?></label><input id="stock-product-price" name="price" type="number" min="0" step="0.01" required></div><div><label for="stock-product-sort-order"><?= e($stockText('admin_stock_product_sort_order')) ?></label><input id="stock-product-sort-order" name="sort_order" type="number"></div><div><label for="stock-product-fake-sold"><?= e($stockText('admin_stock_product_fake_sold')) ?></label><input id="stock-product-fake-sold" name="fake_sold" type="number" min="0" step="1"></div></div>
+                <label class="inline-check"><input type="checkbox" name="status" id="stock-product-status"> <?= e($stockText('admin_stock_product_visible')) ?></label>
+                <div class="actions"><button type="submit"><?= e($stockText('admin_stock_product_save')) ?></button></div>
+            </form>
             <form method="post" id="stock-import-form" data-ajax-form>
                 <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="import"><input type="hidden" name="product_id" id="stock-import-product">
                 <label for="stock-import-content"><?= e($stockText('admin_stock_import_content')) ?></label>
@@ -409,13 +495,16 @@ $stockRows = $db->fetchAll($sql, $params);
     </div>
 </div>
 <div class="stock-toast" id="stock-toast" role="status" aria-live="polite" hidden></div>
+<script type="application/json" id="product-data"><?= json_encode($productModalData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script type="application/json" id="supplier-products-data"><?= json_encode($remoteProductsByProvider, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script type="application/json" id="stock-source-data"><?= json_encode($sourceModalProducts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script>
 (function () {
     var modal = document.getElementById('stock-modal');
+    var productForm = document.getElementById('stock-product-form');
     var importForm = document.getElementById('stock-import-form');
     var sourceForm = document.getElementById('stock-source-form');
+    var productData = JSON.parse(document.getElementById('product-data').textContent || '{}');
     var sourceData = JSON.parse(document.getElementById('stock-source-data').textContent || '{}');
     var supplierProducts = JSON.parse(document.getElementById('supplier-products-data').textContent || '{}');
     var tabs = document.querySelectorAll('[data-stock-tab]');
@@ -424,6 +513,8 @@ $stockRows = $db->fetchAll($sql, $params);
     var toast = document.getElementById('stock-toast');
     var selectedProduct = null;
     var labels = {
+        productCreateTitle: <?= json_encode($stockText('admin_stock_create_product'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>,
+        productEditTitle: <?= json_encode($stockText('admin_stock_edit_product'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>,
         importTitle: <?= json_encode($stockText('admin_stock_modal_import_title'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>,
         sourceTitle: <?= json_encode($stockText('admin_stock_modal_config_title'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>,
         loading: <?= json_encode($stockText('admin_stock_loading'), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>,
@@ -451,8 +542,19 @@ $stockRows = $db->fetchAll($sql, $params);
     }
     function openModal(kind, id) {
         selectedProduct = sourceData[String(id)] || {id: id, name: '', version: '', manual: false, primary_provider: '', primary_code: '', backup_provider: '', backup_code: ''};
-        importForm.hidden = kind !== 'import'; sourceForm.hidden = kind !== 'source';
-        if (kind === 'import') {
+        var product = productData[String(id)] || {id: 0, name: '', description: '', features: '', price: '0', sort_order: 0, fake_sold: 0, status: true};
+        productForm.hidden = kind !== 'product'; importForm.hidden = kind !== 'import'; sourceForm.hidden = kind !== 'source';
+        if (kind === 'product') {
+            document.getElementById('stock-product-id').value = product.id;
+            document.getElementById('stock-product-name').value = product.name;
+            document.getElementById('stock-product-description').value = product.description;
+            document.getElementById('stock-product-features').value = product.features;
+            document.getElementById('stock-product-price').value = product.price;
+            document.getElementById('stock-product-sort-order').value = product.sort_order;
+            document.getElementById('stock-product-fake-sold').value = product.fake_sold;
+            document.getElementById('stock-product-status').checked = product.status;
+            title.textContent = product.id ? labels.productEditTitle.replace(':product', product.name) : labels.productCreateTitle;
+        } else if (kind === 'import') {
             document.getElementById('stock-import-product').value = id;
             title.textContent = labels.importTitle.replace(':product', selectedProduct.name);
         } else {
