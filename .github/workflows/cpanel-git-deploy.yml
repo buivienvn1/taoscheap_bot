@@ -85,35 +85,50 @@ jobs:
             echo "cPanel task log: ${log_path}"
           fi
 
-      - name: Verify deployed commit on production
+      - name: Verify code sync on production
         env:
-          DEPLOY_MARKER_URL: https://taoscheap.qthang.net/deploy-commit.txt
+          CODE_MARKER_URL: https://taoscheap.qthang.net/deploy-code-commit.txt
         shell: bash
         run: |
           set -euo pipefail
-          max_attempts=60
-          delay_seconds=10
-          last_http_code=""
-          for attempt in $(seq 1 "$max_attempts"); do
-            marker_file="$(mktemp)"
-            last_http_code="$(curl --silent --show-error \
-              --output "$marker_file" \
-              --write-out '%{http_code}' \
+          for attempt in $(seq 1 12); do
+            deployed_sha="$(curl --silent --show-error --fail \
               --header 'Cache-Control: no-cache, no-store' \
-              "${DEPLOY_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" || true)"
-            deployed_sha="$(tr -d '\r\n[:space:]' < "$marker_file")"
-            rm -f "$marker_file"
-
-            echo "Verification ${attempt}/${max_attempts}: HTTP ${last_http_code:-000}, expected=${GITHUB_SHA}, deployed=${deployed_sha:-not available}"
-            if [ "$last_http_code" = "200" ] && [ "$deployed_sha" = "$GITHUB_SHA" ]; then
-              echo "Production deployment verified successfully."
+              "${CODE_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" 2>/dev/null \
+              | tr -d '\r\n[:space:]' || true)"
+            echo "Code sync ${attempt}/12: expected=${GITHUB_SHA}, deployed=${deployed_sha:-not available}"
+            if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
+              echo "Production code sync verified successfully."
               exit 0
             fi
-
-            if [ "$attempt" -lt "$max_attempts" ]; then
-              sleep "$delay_seconds"
-            fi
+            sleep 5
           done
 
-          echo "::error::Production did not expose commit ${GITHUB_SHA} within $((max_attempts * delay_seconds)) seconds (last HTTP status: ${last_http_code:-000}). Check the cPanel deployment task log."
+          echo "::error::Production code was not synchronized to commit ${GITHUB_SHA}. Check the cPanel deployment task log."
+          exit 1
+
+      - name: Verify database migration on production
+        env:
+          MIGRATION_MARKER_URL: https://taoscheap.qthang.net/deploy-migration-status.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            migration_status="$(curl --silent --show-error --fail \
+              --header 'Cache-Control: no-cache, no-store' \
+              "${MIGRATION_MARKER_URL}?run=${GITHUB_RUN_ID}&attempt=${attempt}" 2>/dev/null \
+              | tr -d '\r' | xargs || true)"
+            echo "Migration ${attempt}/12: expected=${GITHUB_SHA} success, actual=${migration_status:-not available}"
+            if [ "$migration_status" = "${GITHUB_SHA} success" ]; then
+              echo "Production database migration verified successfully."
+              exit 0
+            fi
+            if [ "$migration_status" = "${GITHUB_SHA} failed" ]; then
+              echo "::error::Production code is synchronized, but database migration failed for commit ${GITHUB_SHA}. Check the cPanel deployment task log."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "::error::Production code may be synchronized, but migration status for commit ${GITHUB_SHA} is unavailable. Check the cPanel deployment task log."
           exit 1
