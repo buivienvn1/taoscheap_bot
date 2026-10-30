@@ -6,7 +6,7 @@ final class Helpers
 {
     public static function money(float|int|string $amount): string
     {
-        return number_format((float) $amount, 0, ',', '.') . 'đ';
+        return number_format((float) $amount, 0, ',', '.') . ' đ';
     }
 
     public static function formatDecimal(float|int|string $value, int $maxDecimals = 6): string
