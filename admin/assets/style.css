@@ -467,16 +467,23 @@ input[type="submit"]:disabled {
 }
 
 .supplier-rate-row .rate-form {
-    flex: 0 1 360px
+    flex: 0 1 360px;
+    align-items: end
+}
+
+.supplier-rate-row .rate-form label {
+    margin: 0
 }
 
 .supplier-rate-row .actions {
-    margin: 0 0 10px
+    align-self: end;
+    margin: 0
 }
 
 .supplier-rate-policy {
     flex: 1 1 280px;
     align-self: center;
+    transform: translateY(10px);
     color: #64748b
 }
 
@@ -723,6 +730,10 @@ input[type="submit"]:disabled {
 
     .supplier-rate-row h3 {
         margin: 0
+    }
+
+    .supplier-rate-policy {
+        transform: none
     }
 
     .supplier-rate-row .rate-form,
