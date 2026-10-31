@@ -1,5 +1,7 @@
 <?php
 
+$settingsText = $adminLanguage ?? new Language('vi');
+
 $keys = [
     'shop_name',
     'shop_intro',
@@ -9,6 +11,8 @@ $keys = [
     'website',
     'support_text',
     'support_text_en',
+    'bulk_discount_enabled',
+    'bulk_discount_tiers',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -33,10 +37,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirectAdmin('settings', $message);
     }
 
+    $bulkTiers = trim((string) ($_POST['bulk_discount_tiers'] ?? ''));
+    $invalidBulkTier = false;
+    foreach (preg_split('/\R/', $bulkTiers) ?: [] as $line) {
+        $parts = array_map('trim', explode(':', $line, 2));
+        if (count($parts) !== 2 || !ctype_digit($parts[0])) {
+            $invalidBulkTier = $line !== '';
+            break;
+        }
+        $quantity = (int) $parts[0];
+        $percent = (float) str_replace(',', '.', $parts[1]);
+        if ($quantity < 2 || $percent <= 0 || $percent >= 100) {
+            $invalidBulkTier = true;
+            break;
+        }
+    }
+    if ($invalidBulkTier) {
+        redirectAdmin('settings', $settingsText->get('admin_bulk_discount_invalid'));
+    }
+
     foreach ($keys as $key) {
+        $value = $key === 'bulk_discount_enabled'
+            ? (isset($_POST[$key]) ? '1' : '0')
+            : trim((string) ($_POST[$key] ?? ''));
         $db->execute(
             'INSERT INTO settings(key_name,key_value) VALUES(?,?) ON DUPLICATE KEY UPDATE key_value=VALUES(key_value)',
-            [$key, trim((string) ($_POST[$key] ?? ''))]
+            [$key, $value]
         );
     }
     redirectAdmin('settings', 'Đã lưu cài đặt.');
@@ -91,6 +117,12 @@ try {
 
         <label for="support_text_en">Nội dung hỗ trợ tiếng Anh</label>
         <textarea id="support_text_en" name="support_text_en" rows="4"><?= e($values['support_text_en'] ?? '') ?></textarea>
+
+        <h3><?= e($settingsText->get('admin_bulk_discount_title')) ?></h3>
+        <label><input type="checkbox" name="bulk_discount_enabled" value="1" <?= ($values['bulk_discount_enabled'] ?? '') === '1' ? 'checked' : '' ?>> <?= e($settingsText->get('admin_bulk_discount_enabled')) ?></label>
+        <label for="bulk_discount_tiers"><?= e($settingsText->get('admin_bulk_discount_tiers')) ?></label>
+        <textarea id="bulk_discount_tiers" name="bulk_discount_tiers" rows="5" placeholder="5:1&#10;10:1.5&#10;20:2"><?= e($values['bulk_discount_tiers'] ?? "5:1\n10:1.5\n20:2") ?></textarea>
+        <small class="help-text"><?= e($settingsText->get('admin_bulk_discount_help')) ?></small>
 
         <button type="submit">Lưu cài đặt</button>
     </form>

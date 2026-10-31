@@ -6,6 +6,7 @@ final class OrderHandler
 {
     private NotificationOutbox $outbox;
     private ReferralService $referrals;
+    private BulkDiscountService $bulkDiscounts;
 
     public function __construct(
         private Database $db,
@@ -18,6 +19,7 @@ final class OrderHandler
     ) {
         $this->outbox = new NotificationOutbox($db, $telegram);
         $this->referrals = $referrals ?? new ReferralService($db, $telegram);
+        $this->bulkDiscounts = new BulkDiscountService($db);
     }
 
     public function checkout(
@@ -61,10 +63,12 @@ final class OrderHandler
             return;
         }
         $unitPrice = number_format((float) $variant['price'], 2, '.', '');
-        $total = number_format((float) $unitPrice * $quantity, 2, '.', '');
+        $pricing = $this->bulkDiscounts->calculate($unitPrice, $quantity);
+        $total = (string) $pricing['total'];
+        $discountAmount = (string) $pricing['discount_amount'];
         $requestToken = hash('sha256', implode(':', [(int) $user['id'], $messageId, $productId, $version]));
         if ((float) $user['balance'] >= (float) $total) {
-            $result = $this->purchaseWithWallet((int) $user['id'], $variant, $quantity, $unitPrice, $requestToken, $lang);
+            $result = $this->purchaseWithWallet((int) $user['id'], $variant, $quantity, $unitPrice, $discountAmount, $requestToken, $lang);
             $this->telegram->editMessage($chatId, $messageId, $result['message'], [[
                 ['text' => $lang->get('continue_buying'), 'callback_data' => 'products'],
                 ['text' => $lang->get('home'), 'callback_data' => 'start'],
@@ -72,7 +76,7 @@ final class OrderHandler
             return;
         }
 
-        $order = $this->pendingDirectOrder((int) $user['id'], $variant, $quantity, $unitPrice, $total, $requestToken);
+        $order = $this->pendingDirectOrder((int) $user['id'], $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken);
         $paymentCode = (string) $order['payment_code'];
         $bankAmount = (string) $order['amount'];
         $walletAmount = (string) $order['wallet_amount'];
@@ -145,10 +149,11 @@ final class OrderHandler
         array $variant,
         int $quantity,
         string $unitPrice,
+        string $discountAmount,
         string $requestToken,
         Language $lang
     ): array {
-        $prepared = $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $requestToken, $lang): array {
+        $prepared = $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $discountAmount, $requestToken, $lang): array {
             $existing = $db->fetch('SELECT * FROM purchase_requests WHERE request_token = ? FOR UPDATE', [$requestToken]);
             if ($existing !== null) {
                 if ($existing['order_id'] !== null) {
@@ -180,13 +185,13 @@ final class OrderHandler
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='price_changed' WHERE request_token=?", [$requestToken]);
                 return ['response' => ['message' => $lang->get('price_changed')]];
             }
-            $total = number_format((float) $unitPrice * $quantity, 2, '.', '');
+            $total = number_format(max(0, (float) $unitPrice * $quantity - (float) $discountAmount), 2, '.', '');
             if ((float) $user['balance'] < (float) $total) {
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='balance_changed' WHERE request_token=?", [$requestToken]);
                 return ['response' => ['message' => $lang->get('balance_changed')]];
             }
             $orderCode = Helpers::orderCode();
-            $db->execute("INSERT INTO orders(order_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,payment_method,status,paid_at) VALUES(?,?,?,?,?,?,?,?, 'wallet','processing',NOW())", [$orderCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $total]);
+            $db->execute("INSERT INTO orders(order_code,user_id,variant_id,quantity,unit_price,discount_amount,product_name,request_token,amount,payment_method,status,paid_at) VALUES(?,?,?,?,?,?,?,?,?, 'wallet','processing',NOW())", [$orderCode, $userId, $variant['id'], $quantity, $unitPrice, $discountAmount, $variant['product_name'], $requestToken, $total]);
             $orderId = $db->lastInsertId();
             $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
             $balanceAfter = number_format((float) $balanceBefore - (float) $total, 2, '.', '');
@@ -233,10 +238,15 @@ final class OrderHandler
         $message = $lang->get('order_result_success', [
             'product' => Helpers::escape((string) $order['product_name']),
             'quantity' => (int) $order['quantity'],
-            'amount' => Helpers::money($order['amount']),
+            'amount' => Helpers::money((float) $order['amount'] + (float) $order['wallet_amount']),
             'order' => Helpers::escape((string) $order['order_code']),
             'time' => Helpers::dateTime((string) $order['completed_at']),
         ]);
+        if ((float) ($order['discount_amount'] ?? 0) > 0) {
+            $message .= "\n" . $lang->get('order_discount_line', [
+                'amount' => Helpers::money($order['discount_amount']),
+            ]);
+        }
         foreach ($deliveries as $index => $delivery) {
             $message .= "\n\n<b>" . $lang->get('delivery_item', ['number' => $index + 1]) . ":</b>\n<code>" . Helpers::escape($delivery['content']) . '</code>';
         }
@@ -274,10 +284,11 @@ final class OrderHandler
         array $variant,
         int $quantity,
         string $unitPrice,
+        string $discountAmount,
         string $total,
         string $requestToken
     ): array {
-        return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $total, $requestToken): array {
+        return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken): array {
             $user = $db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$userId]);
             $request = $db->fetch('SELECT * FROM purchase_requests WHERE request_token=? FOR UPDATE', [$requestToken]);
             if ($request !== null && $request['order_id'] !== null) {
@@ -302,9 +313,9 @@ final class OrderHandler
             $orderCode = Helpers::orderCode();
             $expiresAt = date('Y-m-d H:i:s', time() + 900);
             $db->execute(
-                "INSERT INTO orders(order_code,payment_code,user_id,variant_id,quantity,unit_price,product_name,request_token,amount,wallet_amount,payment_method,status,expires_at)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
-                [$orderCode, $paymentCode, $userId, $variant['id'], $quantity, $unitPrice, $variant['product_name'], $requestToken, $bankAmount, $walletAmount, $paymentMethod, $expiresAt]
+                "INSERT INTO orders(order_code,payment_code,user_id,variant_id,quantity,unit_price,discount_amount,product_name,request_token,amount,wallet_amount,payment_method,status,expires_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)",
+                [$orderCode, $paymentCode, $userId, $variant['id'], $quantity, $unitPrice, $discountAmount, $variant['product_name'], $requestToken, $bankAmount, $walletAmount, $paymentMethod, $expiresAt]
             );
             $orderId = $db->lastInsertId();
             if ((float) $walletAmount > 0) {

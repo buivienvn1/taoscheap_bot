@@ -5,12 +5,14 @@ declare(strict_types=1);
 final class ProductHandler
 {
     private const MAX_QUANTITY = 100;
+    private BulkDiscountService $bulkDiscounts;
 
     public function __construct(
         private Database $db,
         private Telegram $telegram,
         private SupplierCatalogService $supplierCatalog
     ) {
+        $this->bulkDiscounts = new BulkDiscountService($db);
     }
 
     public function list(int $chatId, int $messageId, Language $lang): void
@@ -68,11 +70,10 @@ final class ProductHandler
                 return null;
             }
             $quantity = (int) $current['quantity'];
-            $quantity = match ($operation) {
-                'inc' => $quantity + 1,
-                'dec' => $quantity - 1,
-                'five' => 5,
-                'ten' => 10,
+            $quantity = match (true) {
+                $operation === 'inc' => $quantity + 1,
+                $operation === 'dec' => $quantity - 1,
+                ctype_digit($operation) => (int) $operation,
                 default => $quantity,
             };
             $quantity = max(1, min(self::MAX_QUANTITY, $quantity));
@@ -167,8 +168,10 @@ final class ProductHandler
             );
             $quantity = $displayQuantity;
         }
-        $total = number_format((float) $product['price'] * $quantity, 2, '.', '');
+        $pricing = $this->bulkDiscounts->calculate((float) $product['price'], $quantity);
+        $total = (string) $pricing['total'];
         $soldCount = (int) $product['sold'] + (int) ($product['fake_sold'] ?? 0);
+        $eligibleTiers = $this->bulkDiscounts->eligibleTiers($stock);
         $descriptionParts = array_values(array_filter([
             Helpers::extractMultilingualText((string) $product['description'], $lang->code()),
             Helpers::extractMultilingualText((string) $product['features'], $lang->code()),
@@ -182,10 +185,37 @@ final class ProductHandler
             . '╰ ' . $lang->get('price') . ': <b>' . Helpers::money($product['price']) . "</b>\n"
             . '╰ ' . $lang->get('stock') . ': <b>' . $stock . "</b>\n"
             . '╰ ' . $lang->get('sold') . ': <b>' . $soldCount . "</b>\n\n"
-            . '<b>' . $lang->get('description') . "</b>\n" . $description . "\n\n"
-            . '<b>' . $lang->get('order_details') . "</b>\n"
-            . '╰ ' . $lang->get('quantity') . ': <b>' . $quantity . "</b>\n"
-            . '╰ ' . $lang->get('total') . ': <b>' . Helpers::money($total) . '</b>';
+            . '<b>' . $lang->get('description') . "</b>\n" . $description . "\n\n";
+        if ($eligibleTiers !== []) {
+            $text .= '<b>' . $lang->get('bulk_discounts_title') . "</b>\n";
+            foreach ($eligibleTiers as $tier) {
+                $text .= $lang->get('bulk_discount_item', [
+                    'quantity' => $tier['quantity'],
+                    'percent' => $this->bulkDiscounts->formatPercent($tier['percent']),
+                ]) . "\n";
+            }
+            $text .= "\n";
+        }
+        $text .= '<b>' . $lang->get('order_details') . "</b>\n"
+            . '╰ ' . $lang->get('quantity') . ': <b>' . $quantity . "</b>\n";
+        if ((float) $pricing['discount_amount'] > 0) {
+            $text .= '╰ ' . $lang->get('discount_label') . ': <b>'
+                . $lang->get('discount_summary', [
+                    'percent' => $this->bulkDiscounts->formatPercent($pricing['discount_percent']),
+                    'amount' => Helpers::money($pricing['discount_amount']),
+                ]) . "</b>\n";
+        }
+        $text .= '╰ ' . $lang->get('total') . ': <b>' . Helpers::money($total) . '</b>';
+        $nextTier = $pricing['next_tier'];
+        if (is_array($nextTier) && (int) $nextTier['quantity'] <= $stock) {
+            $needed = (int) $nextTier['quantity'] - $quantity;
+            if ($needed > 0 && $needed <= 2) {
+                $text .= "\n" . $lang->get('bulk_discount_upsell', [
+                    'needed' => $needed,
+                    'percent' => $this->bulkDiscounts->formatPercent($nextTier['percent']),
+                ]);
+            }
+        }
 
         $keyboard = [];
         if ($stock > 0) {
@@ -196,9 +226,16 @@ final class ProductHandler
                 ['text' => '➕', 'callback_data' => $base . 'inc'],
             ];
             $quick = [];
-            if ($stock >= 5) $quick[] = ['text' => $lang->get('select_five'), 'callback_data' => $base . 'five'];
-            if ($stock >= 10) $quick[] = ['text' => $lang->get('select_ten'), 'callback_data' => $base . 'ten'];
-            if ($quick !== []) $keyboard[] = $quick;
+            foreach ($eligibleTiers as $tier) {
+                $quick[] = [
+                    'text' => $lang->get('quick_tier_button', [
+                        'quantity' => $tier['quantity'],
+                        'percent' => $this->bulkDiscounts->formatPercent($tier['percent']),
+                    ]),
+                    'callback_data' => $base . $tier['quantity'],
+                ];
+            }
+            if ($quick !== []) $keyboard[] = array_slice($quick, 0, 3);
             $keyboard[] = [[
                 'text' => $lang->get('checkout'),
                 'callback_data' => 'checkout:' . $productId . ':' . $version,

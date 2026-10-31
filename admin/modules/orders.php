@@ -20,6 +20,7 @@ $buildOrderDetail = static function (array $order, array $deliveries) use ($form
         'product' => (string) ($order['product_name'] ?? '') ?: '-',
         'quantity' => (string) ($order['quantity'] ?? '-'),
         'unit_price' => Helpers::money($order['unit_price'] ?? 0),
+        'discount_amount' => Helpers::money($order['discount_amount'] ?? 0),
         'total' => Helpers::money((float) ($order['amount'] ?? 0) + (float) ($order['wallet_amount'] ?? 0)),
         'wallet_amount' => Helpers::money($order['wallet_amount'] ?? 0),
         'transfer_amount' => Helpers::money($order['amount'] ?? 0),
@@ -40,6 +41,7 @@ $renderLegacyDetail = static function (array $order, array $deliveries) use ($ad
         ['admin_order_product', (string) ($order['product_name'] ?? '') ?: '-'],
         ['admin_order_quantity', (string) ($order['quantity'] ?? '-')],
         ['admin_order_unit_price', Helpers::money($order['unit_price'] ?? 0)],
+        ['admin_order_discount_amount', Helpers::money($order['discount_amount'] ?? 0)],
         ['admin_order_total', Helpers::money((float) ($order['amount'] ?? 0) + (float) ($order['wallet_amount'] ?? 0))],
         ['admin_order_wallet_amount', Helpers::money($order['wallet_amount'] ?? 0)],
         ['admin_order_transfer_amount', Helpers::money($order['amount'] ?? 0)],
@@ -139,12 +141,12 @@ unset($queryBase['p'], $queryBase['message']);
     var body = document.getElementById('order-modal-body');
     var data = JSON.parse(document.getElementById('order-details-data').textContent || '{}');
     var labels = <?= json_encode([
-        'code' => $orderText('admin_order_code'), 'payment_code' => $orderText('admin_order_payment_code'), 'telegram_id' => $orderText('admin_order_telegram_id'), 'customer' => $orderText('admin_order_customer'), 'product' => $orderText('admin_order_product'), 'quantity' => $orderText('admin_order_quantity'), 'unit_price' => $orderText('admin_order_unit_price'), 'total' => $orderText('admin_order_total'), 'wallet_amount' => $orderText('admin_order_wallet_amount'), 'transfer_amount' => $orderText('admin_order_transfer_amount'), 'payment_method' => $orderText('admin_order_payment_method'), 'status' => $orderText('admin_order_status'), 'wallet_credited' => $orderText('admin_order_wallet_credited'), 'completed_at' => $orderText('admin_order_completed_at'), 'delivered' => $orderText('admin_order_delivered_content'), 'no_delivery' => $orderText('admin_order_no_delivery'), 'copy' => $orderText('admin_order_copy'), 'copied' => $orderText('admin_order_copied')
+        'code' => $orderText('admin_order_code'), 'payment_code' => $orderText('admin_order_payment_code'), 'telegram_id' => $orderText('admin_order_telegram_id'), 'customer' => $orderText('admin_order_customer'), 'product' => $orderText('admin_order_product'), 'quantity' => $orderText('admin_order_quantity'), 'unit_price' => $orderText('admin_order_unit_price'), 'discount_amount' => $orderText('admin_order_discount_amount'), 'total' => $orderText('admin_order_total'), 'wallet_amount' => $orderText('admin_order_wallet_amount'), 'transfer_amount' => $orderText('admin_order_transfer_amount'), 'payment_method' => $orderText('admin_order_payment_method'), 'status' => $orderText('admin_order_status'), 'wallet_credited' => $orderText('admin_order_wallet_credited'), 'completed_at' => $orderText('admin_order_completed_at'), 'delivered' => $orderText('admin_order_delivered_content'), 'no_delivery' => $orderText('admin_order_no_delivery'), 'copy' => $orderText('admin_order_copy'), 'copied' => $orderText('admin_order_copied')
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     function closeModal() { modal.hidden = true; modal.setAttribute('aria-hidden', 'true'); document.body.classList.remove('modal-open'); }
     function openModal(id) {
         var item = data[id]; if (!item) return;
-        var fields = ['code','payment_code','telegram_id','customer','product','quantity','unit_price','total','wallet_amount','transfer_amount','payment_method','status','wallet_credited','completed_at'];
+        var fields = ['code','payment_code','telegram_id','customer','product','quantity','unit_price','discount_amount','total','wallet_amount','transfer_amount','payment_method','status','wallet_credited','completed_at'];
         var html = '<div class="grid">';
         fields.forEach(function (key) { html += '<div><strong>' + labels[key] + '</strong><br>' + escapeHtml(item[key]) + '</div>'; });
         html += '</div><h3>' + labels.delivered + '</h3>';
