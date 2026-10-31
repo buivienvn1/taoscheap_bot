@@ -104,9 +104,14 @@ unset($queryBase['p'], $queryBase['message']);
                         </td>
                         <td><?= e(Helpers::dateTime((string) $row['created_at'])) ?></td>
                         <td>
-                            <button type="button" class="secondary" data-open-user-adjust="<?= e((string) $row['id']) ?>">
-                                <?= e($adminLang->get('admin_users_adjust_open')) ?>
-                            </button>
+                            <div class="actions">
+                                <a class="button secondary" href="?<?= e(http_build_query(['page' => 'deposits', 'tab' => 'transactions', 'tx_customer' => (string) $row['telegram_id']])) ?>#transactions">
+                                    <?= e($adminLang->get('admin_users_wallet_history')) ?>
+                                </a>
+                                <button type="button" class="secondary" data-open-user-adjust="<?= e((string) $row['id']) ?>">
+                                    <?= e($adminLang->get('admin_users_adjust_open')) ?>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; ?>

@@ -310,6 +310,14 @@ input[type="submit"]:disabled {
     overflow-x: auto
 }
 
+.deposit-requests-table {
+    min-width: 980px
+}
+
+.balance-history-table {
+    min-width: 1180px
+}
+
 .referral-table {
     min-width: 1100px
 }

@@ -220,6 +220,7 @@ final class OrderHandler
                 $db->execute("INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,reference_type,reference_id,reference_code,note) VALUES(?,'refund',?,?,?,'order',?,?,?)", [$order['user_id'], $prepared['total'], $before, $after, $order['id'], $order['order_code'], 'fulfillment_failed']);
                 $db->execute("UPDATE orders SET status='failed',result_reason='out_of_stock',wallet_credited=?,completed_at=NOW() WHERE id=?", [$prepared['total'], $order['id']]);
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='out_of_stock' WHERE request_token=?", [$requestToken]);
+                $this->enqueueWalletRefundAdmins($order, $user, $prepared['total'], $after);
                 return ['message' => $lang->get('just_out_of_stock')];
             }
             $completedAt = date('Y-m-d H:i:s');
@@ -276,6 +277,27 @@ final class OrderHandler
                 'code' => $orderCode,
                 'time' => Helpers::dateTime($completedAt),
             ]);
+        }
+    }
+
+    private function enqueueWalletRefundAdmins(array $order, array $user, string $amount, string $balance): void
+    {
+        $customer = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
+        if (trim((string) ($user['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $user['username']);
+        $params = [
+            'code' => Helpers::escape((string) $order['order_code']),
+            'product' => Helpers::escape((string) ($order['product_name'] ?? '-')),
+            'quantity' => (int) ($order['quantity'] ?? 0),
+            'customer' => Helpers::escape($customer !== '' ? $customer : '-'),
+            'telegram_id' => Helpers::escape((string) ($user['telegram_id'] ?? '')),
+            'amount' => Helpers::money($amount),
+            'balance' => Helpers::money($balance),
+            'payment_code' => '-',
+            'reason' => 'fulfillment_failed',
+            'time' => Helpers::dateTime(date('Y-m-d H:i:s')),
+        ];
+        foreach (Helpers::adminTelegramIds($this->app) as $adminId) {
+            $this->outbox->enqueueAdmin($adminId, 'order:' . (int) $order['id'] . ':wallet-refund:admin:' . $adminId, 'admin_order_refund', $params);
         }
     }
 

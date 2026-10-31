@@ -7,7 +7,7 @@ require dirname(__DIR__) . '/bootstrap.php';
 $lock = fopen(sys_get_temp_dir() . '/taos-referral-rewards.lock', 'c');
 if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) exit(0);
 try {
-    $paid = (new ReferralService($db, $telegram))->payBatch();
+    $paid = (new ReferralService($db, $telegram, $app))->payBatch();
     fwrite(STDOUT, json_encode(['paid' => $paid]) . PHP_EOL);
 } catch (Throwable $error) {
     error_log('Referral rewards worker failed: ' . $error::class);

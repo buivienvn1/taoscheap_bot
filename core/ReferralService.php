@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 final class ReferralService
 {
-    public function __construct(private Database $db, private Telegram $telegram)
+    public function __construct(private Database $db, private Telegram $telegram, private array $app = [])
     {
     }
 
@@ -161,7 +161,7 @@ final class ReferralService
             $reward = (int) $referral['reward_amount'];
             if ($reward < 1 || (int) $personal['reward_count'] >= (int) $config['daily_limit']
                 || (int) $global['reward_amount'] + $reward > (int) $config['daily_budget']) return false;
-            $user = $this->db->fetch('SELECT balance FROM users WHERE id=? FOR UPDATE', [$referral['inviter_id']]);
+            $user = $this->db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$referral['inviter_id']]);
             // SQL DECIMAL arithmetic preserves any existing fractional wallet balance.
             $this->db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$reward, $referral['inviter_id']]);
             $after = $this->db->fetch('SELECT balance FROM users WHERE id=?', [$referral['inviter_id']]);
@@ -176,9 +176,24 @@ final class ReferralService
             foreach ([0, (int) $referral['inviter_id']] as $scope) {
                 $this->db->execute('UPDATE referral_daily_usage SET reward_count=reward_count+1,reward_amount=reward_amount+? WHERE usage_day=? AND inviter_id=?', [$reward, $day, $scope]);
             }
-            (new NotificationOutbox($this->db, $this->telegram))->enqueue((int) $referral['inviter_id'], 'referral:' . $referral['id'], 'referral_reward_received', [
+            $outbox = new NotificationOutbox($this->db, $this->telegram);
+            $outbox->enqueue((int) $referral['inviter_id'], 'referral:' . $referral['id'], 'referral_reward_received', [
                 'reward' => Helpers::money($reward), 'balance' => Helpers::money($after['balance']), 'code' => $code,
             ]);
+            $customer = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
+            if (trim((string) ($user['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $user['username']);
+            $order = $this->db->fetch('SELECT order_code FROM orders WHERE id=?', [$referral['eligible_order_id']]);
+            foreach (Helpers::adminTelegramIds($this->app) as $adminId) {
+                $outbox->enqueueAdmin($adminId, 'referral:' . $referral['id'] . ':admin:' . $adminId, 'admin_referral_reward_paid', [
+                    'customer' => Helpers::escape($customer !== '' ? $customer : '-'),
+                    'telegram_id' => Helpers::escape((string) ($user['telegram_id'] ?? '')),
+                    'reward' => Helpers::money($reward),
+                    'balance' => Helpers::money($after['balance']),
+                    'code' => Helpers::escape($code),
+                    'order' => Helpers::escape((string) ($order['order_code'] ?? '-')),
+                    'time' => Helpers::dateTime(date('Y-m-d H:i:s')),
+                ]);
+            }
             return true;
         });
     }
