@@ -8,4 +8,4 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
     Require all denied
 </FilesMatch>
 
-RewriteRule ^(config|core|bot|suppliers|migrations|languages)/ - [F,L]
+RewriteRule ^(config|core|bot|suppliers|migrations|languages|storage)/ - [F,L]

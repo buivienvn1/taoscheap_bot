@@ -32,3 +32,5 @@ config/*.local.php
 config/*.production.php
 config/payment_feed.php
 runtime/
+storage/sessions/*
+!storage/sessions/.gitkeep

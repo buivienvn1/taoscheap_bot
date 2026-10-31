@@ -7,7 +7,13 @@ require __DIR__ . '/auth.php';
 
 $adminSessionDays = max(1, min(30, (int) ($app['admin_session_days'] ?? 14)));
 $adminSessionLifetime = $adminSessionDays * 86400;
+$sessionDirectory = dirname(__DIR__) . '/storage/sessions';
+if (!is_dir($sessionDirectory)) {
+    mkdir($sessionDirectory, 0700, true);
+}
 ini_set('session.gc_maxlifetime', (string) $adminSessionLifetime);
+session_save_path($sessionDirectory);
+session_name('taos_admin_session');
 $forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443
@@ -38,6 +44,23 @@ if (isset($_GET['logout'])) {
     header('Location: index.php');
     exit;
 }
+
+if (adminLoggedIn() && (time() - (int) ($_SESSION['admin_last_seen'] ?? 0)) > $adminSessionLifetime) {
+    $_SESSION = [];
+    session_destroy();
+    session_start();
+}
+
+if (adminLoggedIn()) {
+    setcookie(session_name(), session_id(), [
+        'expires' => time() + $adminSessionLifetime,
+        'path' => '/',
+        'secure' => $isHttps,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
 if(!adminLoggedIn()){
  $error='';
  if($_SERVER['REQUEST_METHOD']==='POST'){
