@@ -466,12 +466,25 @@ input[type="submit"]:disabled {
     white-space: nowrap
 }
 
+.supplier-rate-caption {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 400
+}
+
 .supplier-rate-row .rate-form {
     flex: 0 1 360px;
     align-items: end
 }
 
 .supplier-rate-row .rate-form label {
+    margin: 0
+}
+
+.supplier-rate-row .rate-form button,
+.supplier-rate-row .actions button {
+    height: 36px;
+    min-height: 36px;
     margin: 0
 }
 
@@ -730,6 +743,11 @@ input[type="submit"]:disabled {
 
     .supplier-rate-row h3 {
         margin: 0
+    }
+
+    .supplier-rate-caption {
+        display: block;
+        margin-top: 4px
     }
 
     .supplier-rate-policy {

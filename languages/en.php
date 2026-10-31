@@ -348,7 +348,7 @@ return [
     'admin_supplier_coingecko_updated' => 'The USDT/VND rate was updated from CoinGecko.',
     'admin_supplier_coingecko_failed' => 'Could not fetch the CoinGecko rate. The previous rate was preserved.',
     'admin_supplier_fetch_coingecko' => 'Fetch CoinGecko rate',
-    'admin_supplier_currency_policy' => 'USD prices are normalized 1:1 to USDT. All reference prices are converted from USDT to VND.',
+    'admin_supplier_currency_policy' => 'Convert USDT → VND',
     'admin_supplier_nominal_stock' => 'Supplier stock',
     'admin_stock_tab_overview' => 'Products & stock overview',
     'admin_stock_tab_details' => 'Stock line details',

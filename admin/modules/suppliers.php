@@ -165,13 +165,12 @@ if ($selected !== []) {
 
 <section class="card supplier-rate-card">
     <div class="supplier-rate-row">
-        <h3><?= e($t('admin_supplier_exchange_rates')) ?></h3>
+        <h3><?= e($t('admin_supplier_exchange_rates')) ?> <small class="supplier-rate-caption">· <?= e($t('admin_supplier_currency_policy')) ?></small></h3>
         <form method="post" class="rate-form"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="save_rates">
-            <label>USDT → VND<input type="number" min="0.00000001" step="0.00000001" name="rate_usdt" value="<?= e(isset($rates['USDT']) ? Helpers::cleanNumber($rates['USDT']) : '') ?>" required></label>
+            <input type="number" min="0.00000001" step="0.00000001" name="rate_usdt" aria-label="<?= e($t('admin_supplier_exchange_rates')) ?>" value="<?= e(isset($rates['USDT']) ? Helpers::cleanNumber($rates['USDT']) : '') ?>" required>
             <button type="submit"><?= e($t('admin_save')) ?></button>
         </form>
         <form method="post" class="actions"><input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="refresh_coingecko_rate"><button type="submit" class="secondary"><?= e($t('admin_supplier_fetch_coingecko')) ?></button></form>
-        <small class="supplier-rate-policy"><?= e($t('admin_supplier_currency_policy')) ?></small>
     </div>
 </section>
 

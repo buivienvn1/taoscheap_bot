@@ -348,7 +348,7 @@ return [
     'admin_supplier_coingecko_updated' => 'Đã cập nhật tỷ giá USDT/VND từ CoinGecko.',
     'admin_supplier_coingecko_failed' => 'Không thể lấy tỷ giá CoinGecko. Tỷ giá cũ được giữ nguyên.',
     'admin_supplier_fetch_coingecko' => 'Lấy tỷ giá CoinGecko',
-    'admin_supplier_currency_policy' => 'Giá USD được quy đổi 1:1 sang USDT. Tất cả giá bán tham chiếu được quy đổi từ USDT sang VND.',
+    'admin_supplier_currency_policy' => 'Quy đổi USDT → VND',
     'admin_supplier_nominal_stock' => 'Tồn tại NCC',
     'admin_stock_tab_overview' => 'Tổng quan sản phẩm & kho',
     'admin_stock_tab_details' => 'Chi tiết dòng kho',
