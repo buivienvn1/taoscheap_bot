@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+$adminLang = $adminLanguage ?? new Language('vi');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
     $id = (int) ($_POST['id'] ?? 0);
