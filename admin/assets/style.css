@@ -454,6 +454,32 @@ input[type="submit"]:disabled {
     margin-bottom: 10px
 }
 
+.supplier-rate-row {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 10px
+}
+
+.supplier-rate-row h3 {
+    margin: 0 12px 8px 0;
+    white-space: nowrap
+}
+
+.supplier-rate-row .rate-form {
+    flex: 0 1 360px
+}
+
+.supplier-rate-row .actions {
+    margin: 0 0 10px
+}
+
+.supplier-rate-policy {
+    flex: 1 1 280px;
+    align-self: center;
+    color: #64748b
+}
+
 .rate-form label {
     flex: 1 1 180px
 }
@@ -689,9 +715,21 @@ input[type="submit"]:disabled {
     .rate-form,
     .rate-actions,
     .supplier-search,
-    .assign-source-form {
+    .assign-source-form,
+    .supplier-rate-row {
         align-items: stretch;
         flex-direction: column
+    }
+
+    .supplier-rate-row h3 {
+        margin: 0
+    }
+
+    .supplier-rate-row .rate-form,
+    .supplier-rate-row .actions,
+    .supplier-rate-policy {
+        width: 100%;
+        flex-basis: auto
     }
 
     .rate-form label,

@@ -5,13 +5,17 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/bootstrap.php';
 require __DIR__ . '/auth.php';
 
-$adminSessionDays = max(1, min(30, (int) ($app['admin_session_days'] ?? 7)));
+$adminSessionDays = max(1, min(30, (int) ($app['admin_session_days'] ?? 14)));
 $adminSessionLifetime = $adminSessionDays * 86400;
 ini_set('session.gc_maxlifetime', (string) $adminSessionLifetime);
+$forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443
+    || $forwardedProto === 'https';
 session_set_cookie_params([
     'lifetime' => $adminSessionLifetime,
     'path' => '/',
-    'secure' => true,
+    'secure' => $isHttps,
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
