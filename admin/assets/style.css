@@ -455,14 +455,15 @@ input[type="submit"]:disabled {
 }
 
 .supplier-rate-row {
-    display: flex;
-    align-items: end;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(210px, 330px) max-content;
+    align-items: center;
     gap: 10px
 }
 
 .supplier-rate-row h3 {
-    margin: 0 12px 8px 0;
+    min-width: 0;
+    margin: 0;
     white-space: nowrap
 }
 
@@ -473,11 +474,11 @@ input[type="submit"]:disabled {
 }
 
 .supplier-rate-row .rate-form {
-    flex: 0 1 360px;
-    align-items: end
-}
-
-.supplier-rate-row .rate-form label {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) max-content;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
     margin: 0
 }
 
@@ -488,8 +489,13 @@ input[type="submit"]:disabled {
     margin: 0
 }
 
+.supplier-rate-row .rate-form input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]) {
+    width: 100%
+}
+
 .supplier-rate-row .actions {
-    align-self: end;
+    display: flex;
+    align-items: center;
     margin: 0
 }
 
@@ -735,14 +741,25 @@ input[type="submit"]:disabled {
     .rate-form,
     .rate-actions,
     .supplier-search,
-    .assign-source-form,
+    .assign-source-form {
+        align-items: stretch;
+        flex-direction: column
+    }
+
     .supplier-rate-row {
+        display: flex;
         align-items: stretch;
         flex-direction: column
     }
 
     .supplier-rate-row h3 {
         margin: 0
+    }
+
+    .supplier-rate-row .rate-form {
+        display: flex;
+        align-items: stretch;
+        flex-direction: column
     }
 
     .supplier-rate-caption {
