@@ -269,6 +269,14 @@ input[type="submit"]:disabled {
     background: #dcfce7
 }
 
+.stock-notification-count {
+    display: inline-block;
+    margin-left: 4px;
+    color: #64748b;
+    white-space: nowrap;
+    vertical-align: middle
+}
+
 .badge.muted,
 .badge.order-status.cancelled {
     color: #475569;

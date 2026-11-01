@@ -428,6 +428,7 @@ return [
     'admin_stock_product_delete_confirm' => 'Delete a product with no orders; if it has orders, it will only be hidden. Continue?',
     'admin_stock_product_status_visible' => 'Selling',
     'admin_stock_product_status_hidden' => 'Hidden',
+    'admin_stock_notification_count' => '🔔 :count',
     'admin_stock_product_price_column' => 'Price',
     'admin_stock_product_stock_column' => 'Stock',
     'admin_stock_api_label' => 'API',

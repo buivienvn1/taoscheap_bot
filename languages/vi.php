@@ -428,6 +428,7 @@ return [
     'admin_stock_product_delete_confirm' => 'Xóa sản phẩm chưa có đơn; nếu đã có đơn hệ thống sẽ chỉ ẩn. Tiếp tục?',
     'admin_stock_product_status_visible' => 'Đang bán',
     'admin_stock_product_status_hidden' => 'Đã ẩn',
+    'admin_stock_notification_count' => '🔔 :count',
     'admin_stock_product_price_column' => 'Giá',
     'admin_stock_product_stock_column' => 'Kho',
     'admin_stock_api_label' => 'API',
