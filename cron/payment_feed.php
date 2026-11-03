@@ -5,19 +5,19 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 require dirname(__DIR__) . '/bootstrap.php';
 $configFile = dirname(__DIR__) . '/config/payment_feed.local.php';
-if (!is_file($configFile)) exit(0);
-$config = require $configFile;
-if (!is_array($config) || !($config['enabled'] ?? false)) exit(0);
+$config = is_file($configFile) ? require $configFile : [];
+$bankFeedEnabled = is_array($config) && ($config['enabled'] ?? false);
+$binanceFeedEnabled = is_array($binanceConfig) && ($binanceConfig['enabled'] ?? false);
+if (!$bankFeedEnabled && !$binanceFeedEnabled) exit(0);
 
 $lock = fopen(sys_get_temp_dir() . '/taos-payment-feed.lock', 'c');
 if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) exit(0);
 try {
-    $client = new PaymentFeedClient($config);
-    $adapter = new PaymentFeedAdapter();
-    $outbox = new NotificationOutbox($db, $telegram);
-    $referrals = new ReferralService($db, $telegram, $app);
-    $processor = new PaymentProcessor($db, $outbox, $app, $stockFulfillment, $referrals);
-    $service = new PaymentFeedService($db, $processor, $config);
+    $client = $bankFeedEnabled ? new PaymentFeedClient($config) : null;
+    $adapter = $bankFeedEnabled ? new PaymentFeedAdapter() : null;
+    $outbox = $binanceOutbox;
+    $processor = $binanceProcessor;
+    $service = $bankFeedEnabled ? new PaymentFeedService($db, $processor, $config) : null;
     $provider = (string) ($config['provider'] ?? 'acb_third_party');
     $startedAt = time();
 
@@ -27,9 +27,15 @@ try {
                 'hybrid_orders_expired' => $processor->expireHybridOrders(100),
                 'direct_orders_expired' => $processor->expireDirectOrders(100),
             ];
-            $feed = $adapter->adapt($client->fetchPage(), $provider);
-            $result += $service->run($feed);
+            if ($bankFeedEnabled && $client !== null && $adapter !== null && $service !== null) {
+                $feed = $adapter->adapt($client->fetchPage(), $provider);
+                $result += $service->run($feed);
+            }
+            if ($binanceFeedEnabled) {
+                $result['binance_claims'] = $binancePay->processPendingClaims(100);
+            }
             $result['notifications_sent'] = $outbox->retryBatch(100);
+            $result['message_cleanups'] = $outbox->retryCleanupBatch(100);
             fwrite(STDOUT, json_encode($result) . PHP_EOL);
         } catch (Throwable $error) {
             error_log('Payment feed failed: ' . $error::class);

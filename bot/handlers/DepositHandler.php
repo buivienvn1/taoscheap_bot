@@ -108,7 +108,11 @@ final class DepositHandler
             . $lang->get('binance_pay_id_line', ['id' => Helpers::escape((string) $details['id'])]) . "\n"
             . $lang->get('binance_rate_line', ['rate' => Helpers::money((string) $details['rate'])]) . "\n\n"
             . $lang->get('binance_deposit_instruction');
-        $this->telegram->editMessage($chatId, $messageId, $content, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
+        $result = $this->telegram->editMessage($chatId, $messageId, $content, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
+        $targetMessageId = (int) ($result['result']['message_id'] ?? $messageId);
+        if ($targetMessageId > 0) {
+            $this->recordPaymentMessage((int) $deposit['id'], $userId, $chatId, $targetMessageId, 'text', '');
+        }
     }
 
     private function recordPaymentMessage(

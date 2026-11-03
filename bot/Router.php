@@ -57,7 +57,13 @@ final class Router
             return;
         }
         if ($this->binancePay !== null && preg_match('/^[0-9]{8,64}$/', $text) === 1) {
-            $this->claimBinanceOrderId((int) $message['chat']['id'], (int) $user['id'], $text, $lang);
+            $this->claimBinanceOrderId(
+                (int) $message['chat']['id'],
+                (int) ($message['message_id'] ?? 0),
+                (int) $user['id'],
+                $text,
+                $lang
+            );
             return;
         }
         $this->telegram->sendMessage((int) $message['chat']['id'], $lang->get('use_menu'), [[['text' => $lang->get('open_menu'), 'callback_data' => 'start']]]);
@@ -206,29 +212,122 @@ final class Router
         return $fullName !== '' ? $fullName : (string) ($user['username'] ?? '');
     }
 
-    private function claimBinanceOrderId(int $chatId, int $userId, string $orderId, Language $lang): void
+    private function claimBinanceOrderId(int $chatId, int $inputMessageId, int $userId, string $orderId, Language $lang): void
     {
-        try {
-            $result = $this->binancePay?->claimOrderId($userId, $orderId) ?? ['result' => 'disabled'];
-        } catch (Throwable $error) {
-            error_log('Binance Pay claim failed: ' . $error::class . ': ' . $error->getMessage());
-            $result = ['result' => 'unavailable'];
+        if ($inputMessageId > 0) {
+            try {
+                $this->telegram->deleteMessage($chatId, $inputMessageId);
+            } catch (Throwable $error) {
+                error_log('Binance Order ID message cleanup failed: ' . $error::class);
+            }
         }
+
+        try {
+            $registration = $this->binancePay?->registerPendingClaim($userId, $chatId, $orderId) ?? ['result' => 'disabled'];
+        } catch (Throwable $error) {
+            error_log('Binance Pay claim registration failed: ' . $error::class . ': ' . $error->getMessage());
+            $registration = ['result' => 'unavailable'];
+        }
+        if (!in_array($registration['result'] ?? '', ['queued', 'already_queued'], true)) {
+            $this->sendBinanceClaimResult($chatId, null, $orderId, $registration, $lang);
+            return;
+        }
+
+        $claimId = (int) $registration['claim_id'];
+        $messageId = $registration['message_id'] === null ? null : (int) $registration['message_id'];
+        $messageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_checking_step_1', [
+            'order_id' => Helpers::escape($orderId),
+        ]), $lang);
+        if ($messageId > 0) {
+            $this->binancePay?->attachClaimMessage($claimId, $chatId, $messageId);
+            $this->recordBinanceProgressMessage($registration, $userId, $chatId, $messageId);
+        }
+
+        $steps = ['binance_checking_step_1', 'binance_checking_step_2', 'binance_checking_step_3', 'binance_checking_step_4'];
+        foreach ($steps as $index => $step) {
+            if ($index > 0) {
+                sleep(4);
+                $updatedMessageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get($step, [
+                    'order_id' => Helpers::escape($orderId),
+                ]), $lang);
+                if ($updatedMessageId > 0 && $updatedMessageId !== $messageId) {
+                    $messageId = $updatedMessageId;
+                    $this->binancePay?->attachClaimMessage($claimId, $chatId, $messageId);
+                    $this->recordBinanceProgressMessage($registration, $userId, $chatId, $messageId);
+                }
+            }
+            try {
+                $result = $this->binancePay?->checkPendingClaim($claimId) ?? ['result' => 'disabled'];
+            } catch (Throwable $error) {
+                error_log('Binance Pay fast claim failed: ' . $error::class . ': ' . $error->getMessage());
+                $result = ['result' => 'not_found'];
+            }
+            if (($result['result'] ?? '') === 'claimed') {
+                $outboxId = (int) ($result['outbox_id'] ?? 0);
+                if ($outboxId > 0) (new NotificationOutbox($this->db, $this->telegram))->deliver($outboxId);
+                return;
+            }
+            if (!in_array($result['result'] ?? '', ['not_found', 'processing', 'processing_failed'], true)) {
+                $this->sendBinanceClaimResult($chatId, $messageId, $orderId, $result, $lang);
+                return;
+            }
+        }
+
+        $updatedMessageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_claim_queued', [
+            'order_id' => Helpers::escape($orderId),
+        ]), $lang);
+        if ($updatedMessageId > 0 && $updatedMessageId !== $messageId) {
+            $this->binancePay?->attachClaimMessage($claimId, $chatId, $updatedMessageId);
+            $this->recordBinanceProgressMessage($registration, $userId, $chatId, $updatedMessageId);
+        }
+    }
+
+    private function renderBinanceProgress(int $chatId, ?int $messageId, string $text, Language $lang): int
+    {
+        $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
+        $result = $messageId === null
+            ? $this->telegram->sendMessage($chatId, $text, $keyboard)
+            : $this->telegram->editMessageOrSend($chatId, $messageId, $text, $keyboard);
+        return (int) ($result['result']['message_id'] ?? $messageId ?? 0);
+    }
+
+    private function recordBinanceProgressMessage(array $registration, int $userId, int $chatId, int $messageId): void
+    {
+        $requestType = (string) $registration['request_type'];
+        $requestId = (int) $registration['request_id'];
+        $this->db->transaction(function (Database $db) use ($requestType, $requestId, $userId, $chatId, $messageId): void {
+            $db->execute(
+                "UPDATE payment_message_links SET is_active=0,cleanup_status='superseded' WHERE request_type=? AND request_id=? AND is_active=1 AND NOT (chat_id=? AND message_id=?)",
+                [$requestType, $requestId, $chatId, $messageId]
+            );
+            $db->execute(
+                "INSERT INTO payment_message_links(request_type,request_id,user_id,chat_id,message_id,message_type,qr_url)
+                 VALUES(?,?,?,?,?,'text','') ON DUPLICATE KEY UPDATE request_type=VALUES(request_type),request_id=VALUES(request_id),user_id=VALUES(user_id),message_type='text',qr_url='',is_active=1,cleanup_status='pending',cleanup_attempts=0,last_error_code=NULL,cleaned_at=NULL",
+                [$requestType, $requestId, $userId, $chatId, $messageId]
+            );
+        });
+    }
+
+    private function sendBinanceClaimResult(int $chatId, ?int $messageId, string $orderId, array $result, Language $lang): void
+    {
         $key = match ($result['result'] ?? '') {
-            'claimed' => 'binance_claim_success',
             'already_claimed' => 'binance_claim_already_used',
-            'not_found' => 'binance_claim_not_found',
             'short_payment' => 'binance_claim_short_payment',
             'no_pending_request' => 'binance_claim_no_pending',
             'invalid_order_id' => 'binance_claim_invalid',
+            'expired' => 'binance_claim_expired',
             default => 'binance_claim_unavailable',
         };
-        $params = [
+        $text = $lang->get($key, [
             'order_id' => Helpers::escape($orderId),
             'amount_usdt' => Helpers::escape((string) ($result['amount_usdt'] ?? '')),
             'amount_vnd' => Helpers::money((string) ($result['amount_vnd'] ?? '0')),
-        ];
-        $this->telegram->sendMessage($chatId, $lang->get($key, $params), [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
+        ]);
+        if ($messageId === null) {
+            $this->telegram->sendMessage($chatId, $text, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
+            return;
+        }
+        $this->telegram->editMessageOrSend($chatId, $messageId, $text, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
     }
 
     private function upsertUser(array $from, string $referralCode = ''): array

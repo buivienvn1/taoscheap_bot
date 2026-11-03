@@ -111,7 +111,11 @@ final class OrderHandler
             $keyboard = (float) $walletAmount > 0
                 ? [[['text' => $lang->get('cancel_order_button'), 'callback_data' => 'cancel_order:' . $order['id']]]]
                 : [[['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId]]];
-            $this->telegram->editMessage($chatId, $messageId, $content, $keyboard);
+            $result = $this->telegram->editMessage($chatId, $messageId, $content, $keyboard);
+            $targetMessageId = (int) ($result['result']['message_id'] ?? $messageId);
+            if ($targetMessageId > 0) {
+                $this->recordPaymentMessage((int) $order['id'], (int) $user['id'], $chatId, $targetMessageId, 'text', '');
+            }
             return;
         }
         $bank = $this->vietQr->transferDetails();
