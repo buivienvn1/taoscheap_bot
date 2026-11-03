@@ -130,7 +130,7 @@ try {
         <label for="binance_pay_id"><?= e($settingsText->get('admin_binance_pay_id')) ?></label>
         <input id="binance_pay_id" name="binance_pay_id" value="<?= e($values['binance_pay_id'] ?? '') ?>">
         <label for="binance_pay_rate_usdt_vnd"><?= e($settingsText->get('admin_binance_pay_rate')) ?></label>
-        <input id="binance_pay_rate_usdt_vnd" name="binance_pay_rate_usdt_vnd" type="number" min="0.0001" step="0.01" value="<?= e($values['binance_pay_rate_usdt_vnd'] ?? '25500') ?>">
+        <input id="binance_pay_rate_usdt_vnd" name="binance_pay_rate_usdt_vnd" type="number" min="0.0001" step="0.0001" value="<?= e($values['binance_pay_rate_usdt_vnd'] ?? '25500') ?>">
 
         <h3><?= e($settingsText->get('admin_bulk_discount_title')) ?></h3>
         <label><input type="checkbox" name="bulk_discount_enabled" value="1" <?= ($values['bulk_discount_enabled'] ?? '') === '1' ? 'checked' : '' ?>> <?= e($settingsText->get('admin_bulk_discount_enabled')) ?></label>
