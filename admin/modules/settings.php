@@ -13,6 +13,9 @@ $keys = [
     'support_text_en',
     'bulk_discount_enabled',
     'bulk_discount_tiers',
+    'binance_pay_enabled',
+    'binance_pay_id',
+    'binance_pay_rate_usdt_vnd',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -55,9 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($invalidBulkTier) {
         redirectAdmin('settings', $settingsText->get('admin_bulk_discount_invalid'));
     }
+    $binanceRate = (float) str_replace(',', '.', (string) ($_POST['binance_pay_rate_usdt_vnd'] ?? ''));
+    if ($binanceRate <= 0) {
+        redirectAdmin('settings', $settingsText->get('admin_binance_pay_rate_invalid'));
+    }
 
     foreach ($keys as $key) {
-        $value = $key === 'bulk_discount_enabled'
+        $value = in_array($key, ['bulk_discount_enabled', 'binance_pay_enabled'], true)
             ? (isset($_POST[$key]) ? '1' : '0')
             : trim((string) ($_POST[$key] ?? ''));
         $db->execute(
@@ -117,6 +124,13 @@ try {
 
         <label for="support_text_en">Nội dung hỗ trợ tiếng Anh</label>
         <textarea id="support_text_en" name="support_text_en" rows="4"><?= e($values['support_text_en'] ?? '') ?></textarea>
+
+        <h3><?= e($settingsText->get('admin_binance_pay_title')) ?></h3>
+        <label><input type="checkbox" name="binance_pay_enabled" value="1" <?= ($values['binance_pay_enabled'] ?? '') === '1' ? 'checked' : '' ?>> <?= e($settingsText->get('admin_binance_pay_enabled')) ?></label>
+        <label for="binance_pay_id"><?= e($settingsText->get('admin_binance_pay_id')) ?></label>
+        <input id="binance_pay_id" name="binance_pay_id" value="<?= e($values['binance_pay_id'] ?? '') ?>">
+        <label for="binance_pay_rate_usdt_vnd"><?= e($settingsText->get('admin_binance_pay_rate')) ?></label>
+        <input id="binance_pay_rate_usdt_vnd" name="binance_pay_rate_usdt_vnd" type="number" min="0.0001" step="0.01" value="<?= e($values['binance_pay_rate_usdt_vnd'] ?? '25500') ?>">
 
         <h3><?= e($settingsText->get('admin_bulk_discount_title')) ?></h3>
         <label><input type="checkbox" name="bulk_discount_enabled" value="1" <?= ($values['bulk_discount_enabled'] ?? '') === '1' ? 'checked' : '' ?>> <?= e($settingsText->get('admin_bulk_discount_enabled')) ?></label>

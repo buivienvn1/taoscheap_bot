@@ -163,22 +163,24 @@ final class PaymentProcessor
         return $expired;
     }
 
-    public static function normalizeAmount(mixed $value): ?string
+    public static function normalizeAmount(mixed $value, int $precision = 2): ?string
     {
+        $precision = max(0, min(8, $precision));
         if (is_float($value)) {
             if (!is_finite($value) || $value <= 0) return null;
-            $raw = number_format($value, 2, '.', '');
+            $raw = number_format($value, $precision, '.', '');
         } elseif (is_int($value) || is_string($value)) {
             $raw = trim((string) $value);
         } else {
             return null;
         }
-        if (!preg_match('/^\d+(?:\.\d{1,2})?$/', $raw)) return null;
+        $pattern = $precision > 0 ? '/^\d+(?:\.\d{1,' . $precision . '})?$/' : '/^\d+$/';
+        if (!preg_match($pattern, $raw)) return null;
         [$whole, $fraction] = array_pad(explode('.', $raw, 2), 2, '');
         $normalized = ltrim($whole, '0');
         if ($normalized === '') $normalized = '0';
-        $normalized .= '.' . str_pad($fraction, 2, '0');
-        return $normalized === '0.00' ? null : $normalized;
+        $normalized .= $precision > 0 ? '.' . str_pad($fraction, $precision, '0') : '';
+        return (float) $normalized <= 0 ? null : $normalized;
     }
 
     private function auditEvent(array $payment, string $amount, string $code): ?int

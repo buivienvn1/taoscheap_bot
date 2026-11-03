@@ -37,3 +37,15 @@ $vietQr = new VietQR($bank);
 $supplierRegistry = new SupplierRegistry($suppliers);
 $supplierCatalog = new SupplierCatalogService($db, $supplierRegistry);
 $stockFulfillment = new StockFulfillmentService($db, $supplierRegistry);
+$binanceConfigFile = __DIR__ . '/config/binance_pay.local.php';
+$binanceConfig = is_file($binanceConfigFile) ? require $binanceConfigFile : require __DIR__ . '/config/binance_pay.example.php';
+$binanceOutbox = new NotificationOutbox($db, $telegram);
+$binanceReferrals = new ReferralService($db, $telegram, $app);
+$binanceProcessor = new PaymentProcessor($db, $binanceOutbox, $app, $stockFulfillment, $binanceReferrals);
+$binancePay = new BinancePayService(
+    $db,
+    new BinancePayClient($binanceConfig),
+    new BinancePayAdapter(),
+    $binanceProcessor,
+    $binanceConfig
+);

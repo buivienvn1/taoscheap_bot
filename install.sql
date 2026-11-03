@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS schema_migrations;
 DROP TABLE IF EXISTS payment_feed_observations;
 DROP TABLE IF EXISTS payment_feed_runs;
 DROP TABLE IF EXISTS payment_code_registry;
+DROP TABLE IF EXISTS binance_pay_transactions;
 DROP TABLE IF EXISTS stock_subscriptions;
 DROP TABLE IF EXISTS notification_outbox;
 DROP TABLE IF EXISTS checkout_selections;
@@ -187,7 +188,9 @@ CREATE TABLE orders (
     request_token VARCHAR(64) NULL,
     amount DECIMAL(15,2) NOT NULL,
     wallet_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-    payment_method ENUM('wallet', 'vietqr_direct', 'hybrid') NOT NULL,
+    payment_method ENUM('wallet', 'vietqr_direct', 'hybrid', 'binance_pay') NOT NULL,
+    binance_order_id VARCHAR(64) NULL,
+    binance_usdt_amount DECIMAL(20,8) NULL,
     stock_content TEXT NULL,
     status ENUM('pending', 'processing', 'completed', 'failed', 'cancelled') NOT NULL DEFAULT 'pending',
     result_reason VARCHAR(50) NULL,
@@ -377,6 +380,9 @@ CREATE TABLE deposits (
     user_id BIGINT UNSIGNED NOT NULL,
     code VARCHAR(30) NOT NULL,
     reference_code VARCHAR(30) NULL,
+    payment_method ENUM('vietqr','binance_pay') NOT NULL DEFAULT 'vietqr',
+    binance_order_id VARCHAR(64) NULL,
+    binance_usdt_amount DECIMAL(20,8) NULL,
     amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     balance_before DECIMAL(15,2) NULL,
     balance_after DECIMAL(15,2) NULL,
@@ -523,6 +529,28 @@ CREATE TABLE payment_feed_observations (
     CONSTRAINT fk_payment_feed_observations_run FOREIGN KEY (run_id) REFERENCES payment_feed_runs(id) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE binance_pay_transactions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    transaction_id VARCHAR(100) NOT NULL,
+    transaction_number VARCHAR(100) NULL,
+    binance_order_id VARCHAR(64) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    amount_usdt DECIMAL(20,8) NOT NULL,
+    transaction_at VARCHAR(50) NULL,
+    claimed_by_user_id BIGINT UNSIGNED NULL,
+    claimed_request_type ENUM('deposit','order') NULL,
+    claimed_request_id BIGINT UNSIGNED NULL,
+    claimed_at DATETIME NULL,
+    raw_payload MEDIUMTEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_binance_transaction_id (transaction_id),
+    UNIQUE KEY uq_binance_order_id (binance_order_id),
+    KEY idx_binance_claimed (claimed_by_user_id, claimed_at),
+    CONSTRAINT fk_binance_transaction_user FOREIGN KEY (claimed_by_user_id) REFERENCES users(id)
+        ON UPDATE RESTRICT ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE settings (
     key_name VARCHAR(100) NOT NULL,
     key_value TEXT NULL,
@@ -612,7 +640,10 @@ INSERT INTO schema_migrations (migration_name, checksum) VALUES
     ('012_supplier_catalog_balance.sql', NULL),
     ('013_supplier_usdt_vnd_currency.sql', NULL),
     ('014_supplier_balance_currencies.sql', NULL),
-    ('015_referral_rewards.sql', NULL);
+    ('015_referral_rewards.sql', NULL),
+    ('016_add_product_fake_sold.sql', NULL),
+    ('017_add_order_bulk_discount.sql', NULL),
+    ('018_binance_pay_integration.sql', NULL);
 
 INSERT INTO settings (key_name, key_value) VALUES
     ('shop_name', 'TAOS Shop'),
@@ -623,4 +654,7 @@ INSERT INTO settings (key_name, key_value) VALUES
     ('website', ''),
     ('support_text', 'Liên hệ quản trị viên để được hỗ trợ.'),
     ('support_text_en', 'Contact the administrator for support.'),
-    ('supplier_rate_usdt_vnd', '25500');
+    ('supplier_rate_usdt_vnd', '25500'),
+    ('binance_pay_enabled', '0'),
+    ('binance_pay_id', ''),
+    ('binance_pay_rate_usdt_vnd', '25500');

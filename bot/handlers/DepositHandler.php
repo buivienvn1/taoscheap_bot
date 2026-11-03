@@ -4,11 +4,27 @@ declare(strict_types=1);
 
 final class DepositHandler
 {
-    public function __construct(private Database $db, private Telegram $telegram, private VietQR $vietQr)
-    {
+    public function __construct(
+        private Database $db,
+        private Telegram $telegram,
+        private VietQR $vietQr,
+        private ?BinancePayService $binancePay = null
+    ) {
     }
 
     public function show(int $chatId, int $messageId, int $userId, Language $lang): void
+    {
+        if ($this->binancePay?->isEnabled()) {
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('deposit_choose_method'), [
+                [['text' => $lang->get('bank'), 'callback_data' => 'deposit:vietqr']],
+                [['text' => $lang->get('binance_pay_button'), 'callback_data' => 'deposit:binance']],
+            ]);
+            return;
+        }
+        $this->showBank($chatId, $messageId, $userId, $lang);
+    }
+
+    public function showBank(int $chatId, int $messageId, int $userId, Language $lang): void
     {
         $deposit = $this->db->transaction(function (Database $db) use ($userId): array {
             $db->fetch('SELECT id FROM users WHERE id = ? FOR UPDATE', [$userId]);
@@ -66,6 +82,33 @@ final class DepositHandler
                 $this->recordPaymentMessage((int) $deposit['id'], $userId, $chatId, $sentMessageId, 'text', $qrUrl);
             }
         }
+    }
+
+    public function showBinance(int $chatId, int $messageId, int $userId, Language $lang): void
+    {
+        $deposit = $this->db->transaction(function (Database $db) use ($userId): array {
+            $db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$userId]);
+            $pending = $db->fetch(
+                "SELECT * FROM deposits WHERE user_id=? AND payment_method='binance_pay' AND status='pending' ORDER BY id DESC LIMIT 1 FOR UPDATE",
+                [$userId]
+            );
+            if ($pending !== null) return $pending;
+            $registry = new PaymentCodeRegistry($db);
+            $code = $registry->reserve('deposit');
+            $db->execute(
+                "INSERT INTO deposits(user_id,code,payment_method,status) VALUES(?,?, 'binance_pay','pending')",
+                [$userId, $code]
+            );
+            $depositId = $db->lastInsertId();
+            $registry->bind($code, 'deposit', $depositId);
+            return ['id' => $depositId, 'code' => $code];
+        });
+        $details = $this->binancePay?->paymentDetails() ?? ['id' => '', 'rate' => 0];
+        $content = '<blockquote><b>' . $lang->get('binance_deposit_title') . "</b></blockquote>\n\n"
+            . $lang->get('binance_pay_id_line', ['id' => Helpers::escape((string) $details['id'])]) . "\n"
+            . $lang->get('binance_rate_line', ['rate' => Helpers::money((string) $details['rate'])]) . "\n\n"
+            . $lang->get('binance_deposit_instruction');
+        $this->telegram->editMessage($chatId, $messageId, $content, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
     }
 
     private function recordPaymentMessage(

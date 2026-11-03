@@ -19,17 +19,18 @@ final class Router
         private Telegram $telegram,
         VietQR $vietQr,
         array $app,
-        SupplierCatalogService $supplierCatalog
+        SupplierCatalogService $supplierCatalog,
+        private ?BinancePayService $binancePay = null
     ) {
         global $stockFulfillment;
         $this->referrals = new ReferralService($db, $telegram);
         $this->referralHandler = new ReferralHandler($db, $telegram, $this->referrals);
         $this->start = new StartHandler($db, $telegram);
         $this->products = new ProductHandler($db, $telegram, $supplierCatalog);
-        $this->deposit = new DepositHandler($db, $telegram, $vietQr);
+        $this->deposit = new DepositHandler($db, $telegram, $vietQr, $this->binancePay);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
-        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app, $stockFulfillment, $supplierCatalog, $this->referrals);
+        $this->orders = new OrderHandler($db, $telegram, $vietQr, $app, $stockFulfillment, $supplierCatalog, $this->referrals, $this->binancePay);
         $this->languages = ['vi' => new Language('vi'), 'en' => new Language('en')];
     }
 
@@ -53,6 +54,10 @@ final class Router
         }
         if ($text === '/start' || str_starts_with($text, '/start ')) {
             $this->start->show((int) $message['chat']['id'], $lang);
+            return;
+        }
+        if ($this->binancePay !== null && preg_match('/^[0-9]{8,64}$/', $text) === 1) {
+            $this->claimBinanceOrderId((int) $message['chat']['id'], (int) $user['id'], $text, $lang);
             return;
         }
         $this->telegram->sendMessage((int) $message['chat']['id'], $lang->get('use_menu'), [[['text' => $lang->get('open_menu'), 'callback_data' => 'start']]]);
@@ -125,6 +130,12 @@ final class Router
                 $this->products->changeQuantity($chatId, $messageId, (int) $user['id'], (int) $parts[1], $parts[3], (int) $parts[2], $lang);
             }
         }
+        elseif (str_starts_with($data, 'checkout_method:')) {
+            $parts = explode(':', $data, 4);
+            if (count($parts) === 4) {
+                $this->orders->checkout($chatId, $messageId, $user, (int) $parts[1], (int) $parts[2], $lang, $parts[3]);
+            }
+        }
         elseif (str_starts_with($data, 'checkout:')) {
             $parts = explode(':', $data, 3);
             if (count($parts) === 3) {
@@ -135,6 +146,8 @@ final class Router
             $this->orders->cancelOrder($chatId, $messageId, (int) $user['id'], (int) substr($data, 13), $lang);
         }
         elseif ($data === 'deposit') $this->deposit->show($chatId, $messageId, (int) $user['id'], $lang);
+        elseif ($data === 'deposit:vietqr') $this->deposit->showBank($chatId, $messageId, (int) $user['id'], $lang);
+        elseif ($data === 'deposit:binance') $this->deposit->showBinance($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'profile') $this->profile->show($chatId, $messageId, $user, $lang);
         elseif (str_starts_with($data, 'transactions:')) {
             $this->profile->transactions($chatId, $messageId, (int) $user['id'], $lang, max(1, (int) substr($data, 13)));
@@ -191,6 +204,31 @@ final class Router
     {
         $fullName = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
         return $fullName !== '' ? $fullName : (string) ($user['username'] ?? '');
+    }
+
+    private function claimBinanceOrderId(int $chatId, int $userId, string $orderId, Language $lang): void
+    {
+        try {
+            $result = $this->binancePay?->claimOrderId($userId, $orderId) ?? ['result' => 'disabled'];
+        } catch (Throwable $error) {
+            error_log('Binance Pay claim failed: ' . $error::class . ': ' . $error->getMessage());
+            $result = ['result' => 'unavailable'];
+        }
+        $key = match ($result['result'] ?? '') {
+            'claimed' => 'binance_claim_success',
+            'already_claimed' => 'binance_claim_already_used',
+            'not_found' => 'binance_claim_not_found',
+            'short_payment' => 'binance_claim_short_payment',
+            'no_pending_request' => 'binance_claim_no_pending',
+            'invalid_order_id' => 'binance_claim_invalid',
+            default => 'binance_claim_unavailable',
+        };
+        $params = [
+            'order_id' => Helpers::escape($orderId),
+            'amount_usdt' => Helpers::escape((string) ($result['amount_usdt'] ?? '')),
+            'amount_vnd' => Helpers::money((string) ($result['amount_vnd'] ?? '0')),
+        ];
+        $this->telegram->sendMessage($chatId, $lang->get($key, $params), [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
     }
 
     private function upsertUser(array $from, string $referralCode = ''): array

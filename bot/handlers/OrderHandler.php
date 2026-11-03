@@ -15,7 +15,8 @@ final class OrderHandler
         private array $app,
         private StockFulfillmentService $fulfillment,
         private SupplierCatalogService $supplierCatalog,
-        ?ReferralService $referrals = null
+        ?ReferralService $referrals = null,
+        private ?BinancePayService $binancePay = null
     ) {
         $this->outbox = new NotificationOutbox($db, $telegram);
         $this->referrals = $referrals ?? new ReferralService($db, $telegram);
@@ -28,7 +29,8 @@ final class OrderHandler
         array $user,
         int $productId,
         int $version,
-        Language $lang
+        Language $lang,
+        ?string $paymentMethod = null
     ): void {
         $selection = $this->db->fetch(
             'SELECT * FROM checkout_selections WHERE user_id = ? AND message_id = ? AND product_id = ?',
@@ -76,10 +78,42 @@ final class OrderHandler
             return;
         }
 
-        $order = $this->pendingDirectOrder((int) $user['id'], $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken);
+        if ($paymentMethod === null && $this->binancePay?->isEnabled()) {
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('payment_choose_method'), [
+                [['text' => $lang->get('bank'), 'callback_data' => 'checkout_method:' . $productId . ':' . $version . ':vietqr']],
+                [['text' => $lang->get('binance_pay_button'), 'callback_data' => 'checkout_method:' . $productId . ':' . $version . ':binance_pay']],
+            ]);
+            return;
+        }
+
+        $paymentMethod = $paymentMethod === 'binance_pay' ? 'binance_pay' : 'vietqr_direct';
+        $order = $this->pendingDirectOrder((int) $user['id'], $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken, $paymentMethod);
         $paymentCode = (string) $order['payment_code'];
         $bankAmount = (string) $order['amount'];
         $walletAmount = (string) $order['wallet_amount'];
+        if ($paymentMethod === 'binance_pay') {
+            $details = $this->binancePay?->paymentDetails() ?? ['id' => '', 'rate' => 0];
+            $rate = (float) ($details['rate'] ?? 0);
+            $usdtAmount = $rate > 0 ? number_format((float) $bankAmount / $rate, 8, '.', '') : '0.00000000';
+            $content = '<blockquote><b>' . $lang->get('binance_order_title') . "</b></blockquote>\n\n"
+                . $lang->get('payment_compact_item', [
+                    'product' => Helpers::escape($variant['product_name']),
+                    'quantity' => $quantity,
+                ]) . "\n"
+                . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($walletAmount)]) . "\n" : '')
+                . $lang->get('binance_order_amount_line', [
+                    'amount' => Helpers::money($bankAmount),
+                    'usdt' => Helpers::escape($usdtAmount),
+                ]) . "\n"
+                . $lang->get('binance_pay_id_line', ['id' => Helpers::escape((string) $details['id'])]) . "\n"
+                . $lang->get('binance_rate_line', ['rate' => Helpers::money((string) $details['rate'])]) . "\n\n"
+                . $lang->get('binance_order_instruction');
+            $keyboard = (float) $walletAmount > 0
+                ? [[['text' => $lang->get('cancel_order_button'), 'callback_data' => 'cancel_order:' . $order['id']]]]
+                : [[['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId]]];
+            $this->telegram->editMessage($chatId, $messageId, $content, $keyboard);
+            return;
+        }
         $bank = $this->vietQr->transferDetails();
         $qrUrl = $this->vietQr->imageUrl($paymentCode, (float) $bankAmount);
         $content = '<blockquote><b>' . $lang->get('payment_title') . "</b></blockquote>\n\n"
@@ -308,7 +342,8 @@ final class OrderHandler
         string $unitPrice,
         string $discountAmount,
         string $total,
-        string $requestToken
+        string $requestToken,
+        string $paymentMethod = 'vietqr_direct'
     ): array {
         return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken): array {
             $user = $db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$userId]);
@@ -329,7 +364,9 @@ final class OrderHandler
                 throw new RuntimeException('Wallet balance changed during checkout');
             }
             $bankAmount = number_format((float) $total - (float) $walletAmount, 2, '.', '');
-            $paymentMethod = (float) $walletAmount > 0 ? 'hybrid' : 'vietqr_direct';
+            $paymentMethod = $paymentMethod === 'binance_pay'
+                ? 'binance_pay'
+                : ((float) $walletAmount > 0 ? 'hybrid' : 'vietqr_direct');
             $registry = new PaymentCodeRegistry($db);
             $paymentCode = $registry->reserve('order');
             $orderCode = Helpers::orderCode();

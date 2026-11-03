@@ -17,7 +17,7 @@ if (!is_array($update)) {
 }
 
 try {
-    (new Router($db, $telegram, $vietQr, $app, $supplierCatalog))->handle($update);
+    (new Router($db, $telegram, $vietQr, $app, $supplierCatalog, $binancePay))->handle($update);
 } catch (Throwable $error) {
     error_log(sprintf(
         'Telegram webhook error [%s] %s in %s:%d%s%s',
