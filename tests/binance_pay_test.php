@@ -64,8 +64,9 @@ $assert(Helpers::formatDecimal('2.00000000', 8) === '2', 'remove trailing USDT z
 $assert(Helpers::formatDecimal('1.96080000', 8) === '1.9608', 'preserve meaningful USDT decimals');
 $assert(Helpers::formatDecimal('100', 0) === '100', 'zero precision does not trim integer zeroes');
 $assert(Helpers::cleanNumber('10.00000000', 8) === '10', 'clean raw decimal amount');
-$assert(Helpers::formatDualPrice('50000', '25500', 'bank') === '50.000 VND (~ 1.9608 USDT)', 'bank preference prioritizes VND');
-$assert(Helpers::formatDualPrice('50000', '25500', 'binance_pay') === '1.9608 USDT (~ 50.000 VND)', 'Binance preference prioritizes USDT');
+$assert(Helpers::formatDualPrice('50000', '25500', 'bank') === '50.000 VND (1.96 $)', 'bank preference prioritizes VND');
+$assert(Helpers::formatDualPrice('50000', '25500', 'binance_pay') === '1.96 $ (50.000 VND)', 'Binance preference prioritizes dollar equivalent');
+$assert(Helpers::formatDualPrice('255000', '25500', 'bank') === '255.000 VND (10 $)', 'whole dollar equivalent omits trailing zeroes');
 $roundedUsdt = ceil((19900 / 25500) * 10000) / 10000;
 $assert($roundedUsdt * 25500 >= 19900, 'ceil USDT conversion never underpays VND amount');
 

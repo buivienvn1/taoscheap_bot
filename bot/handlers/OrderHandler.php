@@ -44,7 +44,9 @@ final class OrderHandler
         }
         $quantity = (int) $selection['quantity'];
         if ($quantity < 1 || $quantity > 100) {
-            $this->telegram->editMessage($chatId, $messageId, $lang->get('quantity_invalid'));
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('quantity_invalid'), [[
+                ['text' => $lang->get('back'), 'callback_data' => 'product:' . $productId],
+            ]]);
             return;
         }
         $variant = $this->db->fetch(
@@ -54,7 +56,9 @@ final class OrderHandler
             [$productId]
         );
         if ($variant === null) {
-            $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'));
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'), [[
+                ['text' => $lang->get('products_button'), 'callback_data' => 'products'],
+            ]]);
             return;
         }
         $stock = $this->supplierCatalog->variantStock((int) $variant['id']);
@@ -82,6 +86,7 @@ final class OrderHandler
             $this->telegram->editMessage($chatId, $messageId, $lang->get('payment_choose_method'), [
                 [['text' => $lang->get('bank'), 'callback_data' => 'checkout_method:' . $productId . ':' . $version . ':vietqr']],
                 [['text' => $lang->get('binance_pay_button'), 'callback_data' => 'checkout_method:' . $productId . ':' . $version . ':binance_pay']],
+                [['text' => $lang->get('back_product_detail'), 'callback_data' => 'product:' . $productId]],
             ]);
             return;
         }
@@ -174,7 +179,9 @@ final class OrderHandler
     {
         $product = $this->db->fetch('SELECT p.id FROM products p JOIN variants v ON v.id = p.source_variant_id WHERE v.id = ?', [$variantId]);
         if ($product === null) {
-            $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'));
+            $this->telegram->editMessage($chatId, $messageId, $lang->get('product_unavailable'), [[
+                ['text' => $lang->get('products_button'), 'callback_data' => 'products'],
+            ]]);
             return;
         }
         $this->db->execute(

@@ -18,6 +18,7 @@ final class DepositHandler
             $this->telegram->editMessage($chatId, $messageId, $lang->get('deposit_choose_method'), [
                 [['text' => $lang->get('bank'), 'callback_data' => 'deposit:vietqr']],
                 [['text' => $lang->get('binance_pay_button'), 'callback_data' => 'deposit:binance']],
+                [['text' => $lang->get('main_menu'), 'callback_data' => 'start']],
             ]);
             return;
         }
@@ -62,7 +63,10 @@ final class DepositHandler
                 'content' => Helpers::escape((string) $deposit['code']),
             ]) . "\n\n"
             . $lang->get('payment_instruction');
-        $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
+        $keyboard = [
+            [['text' => $lang->get('back'), 'callback_data' => 'deposit']],
+            [['text' => $lang->get('main_menu'), 'callback_data' => 'start']],
+        ];
 
         try {
             $result = $this->telegram->replaceWithPhoto($chatId, $messageId, $qrUrl, $content, $keyboard);
@@ -110,7 +114,10 @@ final class DepositHandler
             . $lang->get('binance_pay_id_line', ['id' => Helpers::escape((string) $details['id'])]) . "\n"
             . $lang->get('binance_rate_line', ['rate' => Helpers::money((string) $details['rate'])]) . "\n\n"
             . $lang->get('binance_deposit_instruction');
-        $result = $this->telegram->editMessage($chatId, $messageId, $content, [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]]);
+        $result = $this->telegram->editMessage($chatId, $messageId, $content, [
+            [['text' => $lang->get('back'), 'callback_data' => 'deposit']],
+            [['text' => $lang->get('main_menu'), 'callback_data' => 'start']],
+        ]);
         $targetMessageId = (int) ($result['result']['message_id'] ?? $messageId);
         if ($targetMessageId > 0) {
             $this->recordPaymentMessage((int) $deposit['id'], $userId, $chatId, $targetMessageId, 'text', '');

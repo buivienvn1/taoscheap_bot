@@ -32,11 +32,11 @@ final class Helpers
         $vnd = self::money($vndAmount);
         if ($rate <= 0) return $vnd;
 
-        $usdt = ceil(((float) $vndAmount / $rate) * 10000) / 10000;
-        $usdtDisplay = self::formatDecimal($usdt, 4) . ' USDT';
+        $usd = round((float) $vndAmount / $rate, 2);
+        $usdDisplay = self::formatDecimal($usd, 2) . ' $';
         return $preference === 'binance_pay'
-            ? $usdtDisplay . ' (~ ' . $vnd . ')'
-            : $vnd . ' (~ ' . $usdtDisplay . ')';
+            ? $usdDisplay . ' (' . $vnd . ')'
+            : $vnd . ' (' . $usdDisplay . ')';
     }
 
     public static function escape(?string $text): string
