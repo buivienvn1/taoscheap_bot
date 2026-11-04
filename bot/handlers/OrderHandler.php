@@ -284,12 +284,20 @@ final class OrderHandler
 
     private function walletOrderMessage(Database $db, int $orderId, Language $lang): array
     {
-        $order = $db->fetch('SELECT * FROM orders WHERE id=?', [$orderId]);
+        $order = $db->fetch(
+            'SELECT o.*,u.preferred_payment_method FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=?',
+            [$orderId]
+        );
         $deliveries = $db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);
+        $rate = (float) (($this->binancePay?->paymentDetails()['rate'] ?? 0));
         $message = $lang->get('order_result_success', [
             'product' => Helpers::escape((string) $order['product_name']),
             'quantity' => (int) $order['quantity'],
-            'amount' => Helpers::money((float) $order['amount'] + (float) $order['wallet_amount']),
+            'amount' => Helpers::formatDualPrice(
+                (float) $order['amount'] + (float) $order['wallet_amount'],
+                $rate,
+                (string) ($order['preferred_payment_method'] ?? 'bank')
+            ),
             'order' => Helpers::escape((string) $order['order_code']),
             'time' => Helpers::dateTime((string) $order['completed_at']),
         ]);

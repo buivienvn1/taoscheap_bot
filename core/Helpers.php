@@ -27,21 +27,20 @@ final class Helpers
         float|int|string $vndAmount,
         float|int|string $usdtVndRate,
         string $preference = 'bank',
-        bool $codeWrapped = false
+        bool $secondaryCodeWrapped = false
     ): string {
         $rate = (float) $usdtVndRate;
         $vnd = self::money($vndAmount);
-        if ($rate <= 0) return $codeWrapped ? '<code>' . $vnd . '</code>' : $vnd;
+        if ($rate <= 0) return $vnd;
 
-        $usd = round((float) $vndAmount / $rate, 2);
-        $usdDisplay = self::formatDecimal($usd, 2) . ' $';
-        if ($codeWrapped) {
-            $vnd = '<code>' . $vnd . '</code>';
-            $usdDisplay = '<code>' . $usdDisplay . '</code>';
+        $usdDisplay = self::formatDecimal(round((float) $vndAmount / $rate, 2), 2) . ' $';
+        if ($preference === 'binance_pay') {
+            $secondary = $secondaryCodeWrapped ? '<code>' . $vnd . '</code>' : $vnd;
+            return $usdDisplay . ' (' . $secondary . ')';
         }
-        return $preference === 'binance_pay'
-            ? $usdDisplay . ' (' . $vnd . ')'
-            : $vnd . ' (' . $usdDisplay . ')';
+
+        $secondary = $secondaryCodeWrapped ? '<code>' . $usdDisplay . '</code>' : $usdDisplay;
+        return $vnd . ' (' . $secondary . ')';
     }
 
     public static function escape(?string $text): string
