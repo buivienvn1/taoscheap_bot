@@ -13,15 +13,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ? mb_substr($reason, 0, 255)
         : $adminLang->get('admin_users_adjust_default_reason');
     $validAmount = preg_match('/^-?\d+$/D', $amount) === 1 && $amount !== '0' && $amount !== '-0';
-    $userExists = $userId > 0 && $db->fetch('SELECT id FROM users WHERE id=?', [$userId]) !== null;
-    if (!$validAmount || !$userExists) {
+    if (!$validAmount || $userId < 1) {
         redirectAdmin('users', $adminLang->get('admin_users_adjust_invalid'));
     }
 
-    $db->transaction(function (Database $db) use ($amount, $userId, $reason): void {
-        $db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$amount, $userId]);
-        $db->execute("INSERT INTO transactions(user_id,type,amount,note) VALUES(?,'adjustment',?,?)", [$userId, $amount, $reason]);
+    $outboxId = $db->transaction(function (Database $db) use ($amount, $userId, $reason, $telegram, $moneyFormatter, $adminLang): int {
+        $user = $db->fetch('SELECT id,balance FROM users WHERE id=? FOR UPDATE', [$userId]);
+        if ($user === null) {
+            redirectAdmin('users', $adminLang->get('admin_users_adjust_invalid'));
+        }
+
+        $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
+        $balanceAfter = number_format((float) $balanceBefore + (float) $amount, 2, '.', '');
+        $db->execute('UPDATE users SET balance=? WHERE id=?', [$balanceAfter, $userId]);
+        $db->execute(
+            "INSERT INTO transactions(user_id,type,amount,balance_before,balance_after,note) VALUES(?,'adjustment',?,?,?,?)",
+            [$userId, $amount, $balanceBefore, $balanceAfter, $reason]
+        );
+        $transactionId = $db->lastInsertId();
+        $referenceCode = 'ADJ-' . str_pad((string) $transactionId, 6, '0', STR_PAD_LEFT);
+        $db->execute('UPDATE transactions SET reference_code=? WHERE id=?', [$referenceCode, $transactionId]);
+
+        $outbox = new NotificationOutbox($db, $telegram);
+        return $outbox->enqueue($userId, 'adjustment:' . $transactionId . ':user', 'balance_adjustment_notice', [
+            'amount' => $moneyFormatter->forUser($amount, $userId),
+            'reason' => $reason,
+            'balance' => $moneyFormatter->forUser($balanceAfter, $userId),
+            'code' => $referenceCode,
+        ]);
     });
+    (new NotificationOutbox($db, $telegram))->deliver($outboxId);
     redirectAdmin('users', $adminLang->get('admin_users_balance_updated'));
 }
 

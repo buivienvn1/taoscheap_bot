@@ -76,11 +76,23 @@ final class OrderHandler
         $discountAmount = (string) $pricing['discount_amount'];
         $requestToken = hash('sha256', implode(':', [(int) $user['id'], $messageId, $productId, $version]));
         if ((float) $user['balance'] >= (float) $total) {
-            $result = $this->purchaseWithWallet((int) $user['id'], $variant, $quantity, $unitPrice, $discountAmount, $requestToken, $lang);
-            $this->telegram->editMessage($chatId, $messageId, $result['message'], [[
-                ['text' => $lang->get('continue_buying'), 'callback_data' => 'products'],
-                ['text' => $lang->get('home'), 'callback_data' => 'start'],
-            ]]);
+            $result = $this->purchaseWithWallet(
+                (int) $user['id'],
+                $variant,
+                $quantity,
+                $unitPrice,
+                $discountAmount,
+                $requestToken,
+                $lang,
+                $chatId,
+                $messageId
+            );
+            if (!($result['notification_handled'] ?? false)) {
+                $this->telegram->editMessage($chatId, $messageId, $result['message'], [[
+                    ['text' => $lang->get('continue_buying'), 'callback_data' => 'products'],
+                    ['text' => $lang->get('home'), 'callback_data' => 'start'],
+                ]]);
+            }
             return;
         }
 
@@ -203,7 +215,9 @@ final class OrderHandler
         string $unitPrice,
         string $discountAmount,
         string $requestToken,
-        Language $lang
+        Language $lang,
+        ?int $chatId = null,
+        ?int $messageId = null
     ): array {
         $prepared = $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $discountAmount, $requestToken, $lang): array {
             $existing = $db->fetch('SELECT * FROM purchase_requests WHERE request_token = ? FOR UPDATE', [$requestToken]);
@@ -258,14 +272,14 @@ final class OrderHandler
         if ($delivery['pending'] ?? false) return ['message' => $lang->get('supplier_fulfillment_pending')];
 
         $referralEvidence = ($delivery['success'] ?? false) ? $this->referrals->inspectOrder($userId) : null;
-        return $this->db->transaction(function (Database $db) use ($prepared, $delivery, $variant, $quantity, $requestToken, $lang, $referralEvidence): array {
+        $result = $this->db->transaction(function (Database $db) use ($prepared, $delivery, $variant, $quantity, $requestToken, $lang, $referralEvidence, $chatId, $messageId): array {
             $order = $db->fetch('SELECT * FROM orders WHERE id=? FOR UPDATE', [$prepared['orderId']]);
             if ($order['status'] === 'completed') return $this->walletOrderMessage($db, (int) $order['id'], $lang);
             if ($order['status'] !== 'processing') {
                 return ['message' => $lang->get($order['status'] === 'failed' ? 'just_out_of_stock' : 'request_processing')];
             }
             if (!$delivery['success']) {
-                $user = $db->fetch('SELECT balance FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
+                $user = $db->fetch('SELECT balance,telegram_id,language FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
                 $before = number_format((float) $user['balance'], 2, '.', '');
                 $after = number_format((float) $before + (float) $prepared['total'], 2, '.', '');
                 $db->execute('UPDATE users SET balance=? WHERE id=?', [$after, $order['user_id']]);
@@ -273,7 +287,27 @@ final class OrderHandler
                 $db->execute("UPDATE orders SET status='failed',result_reason='out_of_stock',wallet_credited=?,completed_at=NOW() WHERE id=?", [$prepared['total'], $order['id']]);
                 $db->execute("UPDATE purchase_requests SET status='failed',result_reason='out_of_stock' WHERE request_token=?", [$requestToken]);
                 $this->enqueueWalletRefundAdmins($order, $user, $prepared['total'], $after);
-                return ['message' => $lang->get('just_out_of_stock')];
+                $params = [
+                    'order' => (string) $order['order_code'],
+                    'amount' => $this->money->forUser($prepared['total'], (int) $order['user_id']),
+                    'balance' => $this->money->forUser($after, (int) $order['user_id']),
+                ];
+                $outboxId = $this->outbox->enqueueRecipient(
+                    (int) $order['user_id'],
+                    'user',
+                    (int) ($user['telegram_id'] ?? $chatId ?? 0),
+                    (string) ($user['language'] ?? $lang->code()),
+                    'order:' . (int) $order['id'] . ':wallet-refund:user',
+                    'wallet_fulfillment_refund',
+                    $params,
+                    $chatId !== null && $messageId !== null ? 'edit_or_send' : 'send',
+                    $chatId,
+                    $messageId
+                );
+                return [
+                    'message' => $lang->get('wallet_fulfillment_refund', $params),
+                    'outbox_id' => $outboxId,
+                ];
             }
             $completedAt = date('Y-m-d H:i:s');
             $db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',completed_at=? WHERE id=?", [implode("\n", $delivery['items'] ?? []), $completedAt, $order['id']]);
@@ -282,6 +316,12 @@ final class OrderHandler
             $this->enqueueWalletOrderAdmins((int) $order['id'], $prepared['user'], $variant, $quantity, $prepared['total'], $prepared['orderCode'], $completedAt);
             return $this->walletOrderMessage($db, (int) $order['id'], $lang);
         });
+        if (isset($result['outbox_id'])) {
+            $this->outbox->deliver((int) $result['outbox_id']);
+            unset($result['outbox_id']);
+            $result['notification_handled'] = $chatId !== null && $messageId !== null;
+        }
+        return $result;
     }
 
     private function walletOrderMessage(Database $db, int $orderId, Language $lang): array
