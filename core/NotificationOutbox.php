@@ -193,10 +193,10 @@ final class NotificationOutbox
             if (!is_array($value)) $escaped[$key] = Helpers::escape((string) $value);
         }
         $text = $lang->get($messageKey, $escaped);
-        if ($messageKey === 'order_result_success') {
-            if (($params['extra'] ?? '') !== '') {
-                $text .= "\n" . $lang->get('order_extra_wallet', ['amount' => Helpers::escape((string) $params['extra'])]);
-            }
+        if ($messageKey === 'order_result_success' && ($params['extra'] ?? '') !== '') {
+            $text .= "\n" . $lang->get('order_extra_wallet', ['amount' => Helpers::escape((string) $params['extra'])]);
+        }
+        if (in_array($messageKey, ['order_result_success', 'warranty_delivery_success'], true)) {
             foreach (($params['deliveries'] ?? []) as $index => $content) {
                 $safe = mb_substr((string) $content, 0, 3000);
                 $text .= "\n\n<b>" . $lang->get('delivery_item', ['number' => $index + 1]) . ":</b>\n<code>" . Helpers::escape($safe) . '</code>';

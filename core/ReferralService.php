@@ -113,8 +113,12 @@ final class ReferralService
         if ($evidence === null) return;
         $referral = $this->db->fetch('SELECT * FROM referrals WHERE id=? FOR UPDATE', [$evidence['referral_id']]);
         if ($referral === null || in_array($referral['status'], ['queued', 'paid'], true)) return;
-        $order = $this->db->fetch('SELECT user_id,status,amount,wallet_amount FROM orders WHERE id=?', [$orderId]);
-        if ($order === null || $order['status'] !== 'completed' || (int) $order['user_id'] !== (int) $referral['invitee_id']) return;
+        $order = $this->db->fetch('SELECT user_id,status,order_type,amount,wallet_amount FROM orders WHERE id=?', [$orderId]);
+        if ($order === null
+            || $order['status'] !== 'completed'
+            || ($order['order_type'] ?? 'purchase') !== 'purchase'
+            || (int) $order['user_id'] !== (int) $referral['invitee_id']
+        ) return;
         $paidAmount = (float) $order['amount'] + (float) $order['wallet_amount'];
         if ($paidAmount <= 0) return;
         $reason = ['member' => 'member_at_completion', 'not_member' => 'not_member', 'api_error' => 'membership_unavailable'][$evidence['result']];

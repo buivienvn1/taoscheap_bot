@@ -41,6 +41,7 @@ $moneyFormatter = new MoneyFormatter($db);
 $binanceConfigFile = __DIR__ . '/config/binance_pay.local.php';
 $binanceConfig = is_file($binanceConfigFile) ? require $binanceConfigFile : require __DIR__ . '/config/binance_pay.example.php';
 $binanceOutbox = new NotificationOutbox($db, $telegram);
+$warrantyService = new WarrantyService($db, $supplierRegistry, $binanceOutbox);
 $binanceReferrals = new ReferralService($db, $telegram, $app);
 $binanceProcessor = new PaymentProcessor($db, $binanceOutbox, $app, $stockFulfillment, $binanceReferrals);
 $binancePay = new BinancePayService(

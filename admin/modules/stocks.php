@@ -272,7 +272,7 @@ $summary = $db->fetchAll(
             (SELECT COUNT(*) FROM stock_subscriptions ss WHERE ss.product_id=p.id AND ss.status=\'pending\') notification_count
      FROM products p
      JOIN variants v ON v.id=p.source_variant_id
-     LEFT JOIN (SELECT variant_id,COALESCE(SUM(quantity),0) total FROM orders WHERE status=\'completed\' GROUP BY variant_id) sold ON sold.variant_id=v.id
+     LEFT JOIN (SELECT variant_id,COALESCE(SUM(quantity),0) total FROM orders WHERE status=\'completed\' AND order_type=\'purchase\' GROUP BY variant_id) sold ON sold.variant_id=v.id
      ORDER BY p.sort_order,p.id'
 );
 $summaryStock = $supplierCatalog->variantStockMap(array_map(static fn (array $item): int => (int) $item['source_variant_id'], $summary));

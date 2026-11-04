@@ -14,7 +14,10 @@ final class ProfileHandler
 
     public function show(int $chatId, int $messageId, array $user, Language $lang): void
     {
-        $count = $this->db->fetch("SELECT COUNT(*) total FROM orders WHERE user_id=? AND status='completed'", [$user['id']]);
+        $count = $this->db->fetch(
+            "SELECT COUNT(*) total FROM orders WHERE user_id=? AND status='completed' AND order_type='purchase'",
+            [$user['id']]
+        );
         $fullName = trim((string) $user['first_name'] . ' ' . (string) ($user['last_name'] ?? ''));
         $username = trim((string) ($user['username'] ?? ''));
         $usernameText = $username === '' ? $lang->get('username_empty') : '@' . Helpers::escape($username);
@@ -100,7 +103,7 @@ final class ProfileHandler
     {
         $page = max(1, $page);
         $rows = $this->db->fetchAll(
-            "SELECT id,order_code,product_name,quantity,amount,wallet_amount FROM orders WHERE user_id=? AND status='completed' ORDER BY id DESC LIMIT "
+            "SELECT id,order_code,order_type,product_name,quantity,amount,wallet_amount FROM orders WHERE user_id=? AND status='completed' ORDER BY id DESC LIMIT "
             . (self::HISTORY_PAGE_SIZE + 1) . ' OFFSET ' . (($page - 1) * self::HISTORY_PAGE_SIZE),
             [$userId]
         );
@@ -109,9 +112,12 @@ final class ProfileHandler
         $text = '<blockquote><b>' . $lang->get('history_title') . '</b></blockquote>';
         $keyboard = [];
         foreach ($rows as $row) {
-            $text .= "\n\n" . $lang->get('history_order_summary', [
-                'code' => Helpers::escape($row['order_code']),
-                'product' => Helpers::escape($row['product_name'] ?: '-'),
+            $summaryKey = ($row['order_type'] ?? 'purchase') === 'warranty'
+                ? 'history_warranty_summary'
+                : 'history_order_summary';
+            $text .= "\n\n" . $lang->get($summaryKey, [
+                'code' => Helpers::escape((string) $row['order_code']),
+                'product' => Helpers::escape((string) ($row['product_name'] ?: '-')),
                 'quantity' => (int) $row['quantity'],
                 'amount' => $this->money->forUser((float) $row['amount'] + (float) $row['wallet_amount'], $userId),
             ]);
@@ -128,7 +134,10 @@ final class ProfileHandler
 
     public function orderDetail(int $chatId, int $messageId, int $userId, int $orderId, int $page, Language $lang): void
     {
-        $order = $this->db->fetch('SELECT * FROM orders WHERE id=? AND user_id=?', [$orderId, $userId]);
+        $order = $this->db->fetch(
+            'SELECT o.*,parent.order_code parent_order_code FROM orders o LEFT JOIN orders parent ON parent.id=o.parent_order_id WHERE o.id=? AND o.user_id=?',
+            [$orderId, $userId]
+        );
         if ($order === null) {
             $this->notFound($chatId, $messageId, 'orders:' . max(1, $page), $lang);
             return;
@@ -137,12 +146,16 @@ final class ProfileHandler
             $this->notFound($chatId, $messageId, 'orders:' . max(1, $page), $lang);
             return;
         }
-        $text = $lang->get('order_result_success', [
+        $messageKey = ($order['order_type'] ?? 'purchase') === 'warranty'
+            ? 'warranty_delivery_success'
+            : 'order_result_success';
+        $text = $lang->get($messageKey, [
             'product' => Helpers::escape((string) ($order['product_name'] ?: '-')),
             'quantity' => (int) $order['quantity'],
             'amount' => $this->money->forUser((float) $order['amount'] + (float) $order['wallet_amount'], $userId),
             'order' => Helpers::escape((string) $order['order_code']),
-            'time' => Helpers::dateTime((string) ($order['completed_at'] ?: $order['created_at'])),
+            'parent_order' => Helpers::escape((string) ($order['parent_order_code'] ?: '-')),
+            'time' => Helpers::escape(Helpers::dateTime((string) ($order['completed_at'] ?: $order['created_at']))),
         ]);
         $deliveries = $this->db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);
         if ($deliveries === [] && trim((string) $order['stock_content']) !== '') $deliveries = [['content' => $order['stock_content']]];

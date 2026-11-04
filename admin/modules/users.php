@@ -6,16 +6,22 @@ $adminLang = $adminLanguage ?? new Language('vi');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
-    $amount = (float) ($_POST['amount'] ?? 0);
+    $amount = trim((string) ($_POST['amount'] ?? ''));
     $userId = (int) ($_POST['user_id'] ?? 0);
     $reason = trim((string) ($_POST['reason'] ?? ''));
-    $reason = $reason !== '' ? mb_substr($reason, 0, 255) : 'Admin điều chỉnh';
-    if ($amount !== 0.0 && $userId > 0) {
-        $db->transaction(function (Database $db) use ($amount, $userId, $reason): void {
-            $db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$amount, $userId]);
-            $db->execute("INSERT INTO transactions(user_id,type,amount,note) VALUES(?,'adjustment',?,?)", [$userId, $amount, $reason]);
-        });
+    $reason = $reason !== ''
+        ? mb_substr($reason, 0, 255)
+        : $adminLang->get('admin_users_adjust_default_reason');
+    $validAmount = preg_match('/^-?\d+$/D', $amount) === 1 && $amount !== '0' && $amount !== '-0';
+    $userExists = $userId > 0 && $db->fetch('SELECT id FROM users WHERE id=?', [$userId]) !== null;
+    if (!$validAmount || !$userExists) {
+        redirectAdmin('users', $adminLang->get('admin_users_adjust_invalid'));
     }
+
+    $db->transaction(function (Database $db) use ($amount, $userId, $reason): void {
+        $db->execute('UPDATE users SET balance=balance+? WHERE id=?', [$amount, $userId]);
+        $db->execute("INSERT INTO transactions(user_id,type,amount,note) VALUES(?,'adjustment',?,?)", [$userId, $amount, $reason]);
+    });
     redirectAdmin('users', $adminLang->get('admin_users_balance_updated'));
 }
 
@@ -45,9 +51,9 @@ $offset = ($pageNumber - 1) * $pageSize;
 
 $rows = $db->fetchAll(
     'SELECT u.*,
-            (SELECT COALESCE(SUM(amount + wallet_amount), 0) FROM orders WHERE user_id = u.id AND status = \'completed\') AS total_spent,
-            (SELECT COUNT(*) FROM orders WHERE user_id = u.id AND status = \'completed\') AS completed_orders_count,
-            (SELECT COUNT(*) FROM orders WHERE user_id = u.id) AS total_orders_count
+            (SELECT COALESCE(SUM(amount + wallet_amount), 0) FROM orders WHERE user_id = u.id AND status = \'completed\' AND order_type = \'purchase\') AS total_spent,
+            (SELECT COUNT(*) FROM orders WHERE user_id = u.id AND status = \'completed\' AND order_type = \'purchase\') AS completed_orders_count,
+            (SELECT COUNT(*) FROM orders WHERE user_id = u.id AND order_type = \'purchase\') AS total_orders_count
      FROM users u' . $whereSql . ' ORDER BY u.id DESC LIMIT ' . $pageSize . ' OFFSET ' . $offset,
     $params
 );
@@ -147,7 +153,7 @@ unset($queryBase['p'], $queryBase['message']);
                 <p><strong><?= e($adminLang->get('admin_users_adjust_user')) ?>:</strong> <span id="adjust-user-name">-</span></p>
                 <p><strong><?= e($adminLang->get('admin_users_adjust_current_balance')) ?>:</strong> <span id="adjust-user-balance">-</span></p>
                 <label for="adjust-amount"><?= e($adminLang->get('admin_users_adjust_amount')) ?></label>
-                <input id="adjust-amount" name="amount" type="number" step="1000" required placeholder="<?= e($adminLang->get('admin_adjust_placeholder')) ?>">
+                <input id="adjust-amount" name="amount" type="number" step="1" required placeholder="<?= e($adminLang->get('admin_adjust_placeholder')) ?>">
                 <label for="adjust-reason"><?= e($adminLang->get('admin_users_adjust_reason')) ?></label>
                 <textarea id="adjust-reason" name="reason" maxlength="255" placeholder="<?= e($adminLang->get('admin_users_adjust_reason_placeholder')) ?>"></textarea>
                 <div class="actions"><button type="submit"><?= e($adminLang->get('admin_users_adjust_submit')) ?></button><button type="button" class="secondary" data-close-user-adjust><?= e($adminLang->get('admin_users_adjust_cancel')) ?></button></div>

@@ -27,14 +27,13 @@ $assert(
 );
 
 $assert(
-    str_contains($productHandlerCode, "COALESCE(SUM(quantity),0) total FROM orders WHERE status='completed' GROUP BY variant_id"),
-    'ProductHandler queries completed orders for sold count'
+    str_contains($productHandlerCode, "COALESCE(SUM(quantity),0) total FROM orders WHERE status='completed' AND order_type='purchase' GROUP BY variant_id"),
+    'ProductHandler counts only completed purchase orders as sold'
 );
 
 $assert(
-    str_contains($stocksAdminCode, "COALESCE(SUM(quantity),0) total FROM orders WHERE status='completed' GROUP BY variant_id")
-    || str_contains($stocksAdminCode, "COALESCE(SUM(quantity),0) total FROM orders WHERE status=\\'completed\\' GROUP BY variant_id"),
-    'Stocks admin module queries completed orders for sold count'
+    str_contains($stocksAdminCode, "COALESCE(SUM(quantity),0) total FROM orders WHERE status=\\'completed\\' AND order_type=\\'purchase\\' GROUP BY variant_id"),
+    'Stocks admin module counts only completed purchase orders as sold'
 );
 
 // 2. Kiểm tra PaymentProcessor::expireDirectOrders không gửi order_expired và có gọi cleanupDirect
