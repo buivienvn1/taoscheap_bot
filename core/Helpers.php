@@ -26,14 +26,19 @@ final class Helpers
     public static function formatDualPrice(
         float|int|string $vndAmount,
         float|int|string $usdtVndRate,
-        string $preference = 'bank'
+        string $preference = 'bank',
+        bool $codeWrapped = false
     ): string {
         $rate = (float) $usdtVndRate;
         $vnd = self::money($vndAmount);
-        if ($rate <= 0) return $vnd;
+        if ($rate <= 0) return $codeWrapped ? '<code>' . $vnd . '</code>' : $vnd;
 
         $usd = round((float) $vndAmount / $rate, 2);
         $usdDisplay = self::formatDecimal($usd, 2) . ' $';
+        if ($codeWrapped) {
+            $vnd = '<code>' . $vnd . '</code>';
+            $usdDisplay = '<code>' . $usdDisplay . '</code>';
+        }
         return $preference === 'binance_pay'
             ? $usdDisplay . ' (' . $vnd . ')'
             : $vnd . ' (' . $usdDisplay . ')';

@@ -236,7 +236,7 @@ final class Router
         $claimId = (int) $registration['claim_id'];
         $messageId = $registration['message_id'] === null ? null : (int) $registration['message_id'];
         $keyboard = $this->binanceProgressKeyboard($registration, $lang);
-        $messageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_checking_step_1', [
+        $messageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_verifying', [
             'order_id' => Helpers::escape($orderId),
         ]), $keyboard);
         if ($messageId > 0) {
@@ -244,45 +244,19 @@ final class Router
             $this->recordBinanceProgressMessage($registration, $userId, $chatId, $messageId);
         }
 
-        $steps = [
-            'binance_checking_step_1', 'binance_checking_step_2', 'binance_checking_step_3', 'binance_checking_step_4',
-            'binance_checking_step_5', 'binance_checking_step_6', 'binance_checking_step_7', 'binance_checking_step_8',
-        ];
-        foreach ($steps as $index => $step) {
-            sleep(5);
-            if ($index > 0) {
-                $updatedMessageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get($step, [
-                    'order_id' => Helpers::escape($orderId),
-                ]), $keyboard);
-                if ($updatedMessageId > 0 && $updatedMessageId !== $messageId) {
-                    $messageId = $updatedMessageId;
-                    $this->binancePay?->attachClaimMessage($claimId, $chatId, $messageId);
-                    $this->recordBinanceProgressMessage($registration, $userId, $chatId, $messageId);
-                }
-            }
-            try {
-                $result = $this->binancePay?->checkPendingClaim($claimId) ?? ['result' => 'disabled'];
-            } catch (Throwable $error) {
-                error_log('Binance Pay fast claim failed: ' . $error::class . ': ' . $error->getMessage());
-                $result = ['result' => 'not_found'];
-            }
-            if (($result['result'] ?? '') === 'claimed') {
-                $outboxId = (int) ($result['outbox_id'] ?? 0);
-                if ($outboxId > 0) (new NotificationOutbox($this->db, $this->telegram))->deliver($outboxId);
-                return;
-            }
-            if (!in_array($result['result'] ?? '', ['not_found', 'processing', 'processing_failed'], true)) {
-                $this->sendBinanceClaimResult($chatId, $messageId, $orderId, $result, $lang);
-                return;
-            }
+        try {
+            $result = $this->binancePay?->checkPendingClaim($claimId) ?? ['result' => 'disabled'];
+        } catch (Throwable $error) {
+            error_log('Binance Pay fast claim failed: ' . $error::class . ': ' . $error->getMessage());
+            return;
         }
-
-        $updatedMessageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_claim_queued', [
-            'order_id' => Helpers::escape($orderId),
-        ]), $keyboard);
-        if ($updatedMessageId > 0 && $updatedMessageId !== $messageId) {
-            $this->binancePay?->attachClaimMessage($claimId, $chatId, $updatedMessageId);
-            $this->recordBinanceProgressMessage($registration, $userId, $chatId, $updatedMessageId);
+        if (($result['result'] ?? '') === 'claimed') {
+            $outboxId = (int) ($result['outbox_id'] ?? 0);
+            if ($outboxId > 0) (new NotificationOutbox($this->db, $this->telegram))->deliver($outboxId);
+            return;
+        }
+        if (!in_array($result['result'] ?? '', ['not_found', 'processing', 'processing_failed'], true)) {
+            $this->sendBinanceClaimResult($chatId, $messageId, $orderId, $result, $lang);
         }
     }
 

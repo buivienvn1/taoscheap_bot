@@ -361,7 +361,7 @@ final class OrderHandler
         string $requestToken,
         string $paymentMethod = 'vietqr_direct'
     ): array {
-        return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken): array {
+        return $this->db->transaction(function (Database $db) use ($userId, $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken, $paymentMethod): array {
             $user = $db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$userId]);
             $request = $db->fetch('SELECT * FROM purchase_requests WHERE request_token=? FOR UPDATE', [$requestToken]);
             if ($request !== null && $request['order_id'] !== null) {
@@ -413,7 +413,9 @@ final class OrderHandler
         $result = $this->db->transaction(function (Database $db) use ($userId, $orderId): array {
             $order = $db->fetch('SELECT * FROM orders WHERE id=? AND user_id=? FOR UPDATE', [$orderId, $userId]);
             if ($order === null) return ['key' => 'order_cancel_not_found', 'amount' => '0.00'];
-            if ($order['status'] !== 'pending' || $order['payment_method'] !== 'hybrid') {
+            if ($order['status'] !== 'pending'
+                || !in_array($order['payment_method'], ['hybrid', 'binance_pay'], true)
+                || (float) $order['wallet_amount'] <= 0) {
                 return ['key' => 'order_cancel_closed', 'amount' => '0.00'];
             }
 

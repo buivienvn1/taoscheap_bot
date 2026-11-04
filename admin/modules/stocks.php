@@ -8,6 +8,10 @@ $isAjaxRequest = static function (): bool {
 };
 $respond = static function (bool $success, string $message, array $data = []) use ($isAjaxRequest): never {
     if ($isAjaxRequest()) {
+        if (ob_get_level() > 0) {
+            ob_clean();
+        }
+        http_response_code($success ? 200 : 422);
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['success' => $success, 'message' => $message, 'data' => $data], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
@@ -44,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $fakeSold = max(0, (int) ($_POST['fake_sold'] ?? 0));
         $status = isset($_POST['status']) ? 1 : 0;
         if ($name === '') {
-            redirectAdmin('stocks', $stockText('admin_stock_product_name_invalid'));
+            $respond(false, $stockText('admin_stock_product_name_invalid'));
         }
         $db->transaction(function (Database $db) use ($productId, $name, $description, $features, $price, $sortOrder, $fakeSold, $status): void {
             if ($productId > 0) {
@@ -63,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->execute('UPDATE products SET source_variant_id=? WHERE id=?', [$variantId, $newProductId]);
             $db->execute("INSERT INTO supplier_sources(variant_id,source_type,priority,status) VALUES(?,'manual',0,1)", [$variantId]);
         });
-        redirectAdmin('stocks', $stockText('admin_stock_product_saved'));
+        $respond(true, $stockText('admin_stock_product_saved'));
     }
 
     if (($action === 'toggle_product' || $action === 'delete_product') && ($productId = max(0, (int) ($_POST['id'] ?? 0))) > 0) {
@@ -466,7 +470,7 @@ $stockRows = $db->fetchAll($sql, $params);
     <div class="stock-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="stock-modal-title">
         <div class="stock-modal-header"><h2 id="stock-modal-title"></h2><button type="button" class="secondary" data-close-stock-modal><?= e($stockText('admin_stock_modal_close')) ?></button></div>
         <div class="stock-modal-body">
-            <form method="post" id="stock-product-form">
+            <form method="post" id="stock-product-form" data-ajax-form>
                 <input type="hidden" name="csrf" value="<?= e(csrfToken()) ?>"><input type="hidden" name="action" value="save_product"><input type="hidden" name="id" id="stock-product-id">
                 <label for="stock-product-name"><?= e($stockText('admin_stock_product_name')) ?></label><input id="stock-product-name" name="name" required>
                 <label for="stock-product-description"><?= e($stockText('admin_stock_product_description')) ?></label><textarea id="stock-product-description" name="description" rows="5"></textarea>
@@ -573,9 +577,16 @@ $stockRows = $db->fetchAll($sql, $params);
     function closeModal() { modal.hidden = true; modal.setAttribute('aria-hidden', 'true'); document.body.classList.remove('modal-open'); }
     function submitForm(form) {
         var submit = form.querySelector('button[type="submit"]'); submit.disabled = true; notify(labels.loading, true);
-        fetch(window.location.href, {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, body: new FormData(form)})
-            .then(function (response) { return response.json(); })
-            .then(function (result) { if (!result.success) throw new Error(result.message || labels.error); notify(result.message, true); closeModal(); form.reset(); })
+        fetch('index.php?page=stocks', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}, body: new FormData(form)})
+            .then(function (response) {
+                var contentType = response.headers.get('content-type') || '';
+                if (!contentType.toLowerCase().includes('application/json')) throw new Error(labels.error);
+                return response.json().then(function (result) {
+                    if (!response.ok || !result.success) throw new Error(result.message || labels.error);
+                    return result;
+                });
+            })
+            .then(function (result) { notify(result.message, true); closeModal(); form.reset(); })
             .catch(function (error) { notify(error.message || labels.error, false); })
             .finally(function () { submit.disabled = false; });
     }

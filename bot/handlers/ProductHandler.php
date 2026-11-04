@@ -34,7 +34,7 @@ final class ProductHandler
             $stock = $stockMap[(int) $product['variant_id']]['available'];
             $text .= $number . '. <b>' . Helpers::escape($product['name']) . "</b>\n"
                 . $lang->get('product_item_sub', [
-                    'price' => Helpers::formatDualPrice($product['price'], $rate, $preference),
+                    'price' => Helpers::formatDualPrice($product['price'], $rate, $preference, true),
                     'count' => $stock,
                 ]) . "\n\n";
             $buttons[] = ['text' => (string) $number, 'callback_data' => 'product:' . $product['id']];
