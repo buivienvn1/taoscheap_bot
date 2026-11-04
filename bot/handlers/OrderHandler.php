@@ -87,6 +87,10 @@ final class OrderHandler
         }
 
         $paymentMethod = $paymentMethod === 'binance_pay' ? 'binance_pay' : 'vietqr_direct';
+        $this->db->execute(
+            'UPDATE users SET preferred_payment_method=? WHERE id=?',
+            [$paymentMethod === 'binance_pay' ? 'binance_pay' : 'bank', (int) $user['id']]
+        );
         $order = $this->pendingDirectOrder((int) $user['id'], $variant, $quantity, $unitPrice, $discountAmount, $total, $requestToken, $paymentMethod);
         $paymentCode = (string) $order['payment_code'];
         $bankAmount = (string) $order['amount'];
@@ -94,7 +98,8 @@ final class OrderHandler
         if ($paymentMethod === 'binance_pay') {
             $details = $this->binancePay?->paymentDetails() ?? ['id' => '', 'rate' => 0];
             $rate = (float) ($details['rate'] ?? 0);
-            $usdtAmount = $rate > 0 ? number_format((float) $bankAmount / $rate, 8, '.', '') : '0.00000000';
+            $usdtRaw = $rate > 0 ? ceil(((float) $bankAmount / $rate) * 10000) / 10000 : 0.0;
+            $usdtAmount = Helpers::formatDecimal($usdtRaw, 4);
             $content = '<blockquote><b>' . $lang->get('binance_order_title') . "</b></blockquote>\n\n"
                 . $lang->get('payment_compact_item', [
                     'product' => Helpers::escape($variant['product_name']),

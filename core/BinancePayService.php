@@ -197,6 +197,8 @@ final class BinancePayService
             'provider_event_id' => (string) $transaction['transaction_id'],
             'provider_transaction_id' => (string) $transaction['transaction_id'],
             'provider_transaction_number' => (string) ($transaction['transaction_number'] ?? ''),
+            'binance_order_id' => (string) $transaction['binance_order_id'],
+            'binance_usdt_amount' => (string) $transaction['amount_usdt'],
             'amount' => $amountVnd,
             'content' => (string) $request['payment_code'],
             'direction' => 'IN',

@@ -10,13 +10,15 @@ final class ProductHandler
     public function __construct(
         private Database $db,
         private Telegram $telegram,
-        private SupplierCatalogService $supplierCatalog
+        private SupplierCatalogService $supplierCatalog,
+        private ?BinancePayService $binancePay = null
     ) {
         $this->bulkDiscounts = new BulkDiscountService($db);
     }
 
-    public function list(int $chatId, int $messageId, Language $lang): void
+    public function list(int $chatId, int $messageId, int $userId, Language $lang): void
     {
+        [$rate, $preference] = $this->priceContext($userId);
         $products = $this->db->fetchAll(
             "SELECT p.id,p.name,v.id variant_id,v.price
              FROM products p
@@ -32,7 +34,7 @@ final class ProductHandler
             $stock = $stockMap[(int) $product['variant_id']]['available'];
             $text .= $number . '. <b>' . Helpers::escape($product['name']) . "</b>\n"
                 . $lang->get('product_item_sub', [
-                    'price' => Helpers::money($product['price']),
+                    'price' => Helpers::formatDualPrice($product['price'], $rate, $preference),
                     'count' => $stock,
                 ]) . "\n\n";
             $buttons[] = ['text' => (string) $number, 'callback_data' => 'product:' . $product['id']];
@@ -102,7 +104,7 @@ final class ProductHandler
             [$productId]
         );
         if ($product === null) {
-            $this->list($chatId, $messageId, $lang);
+            $this->list($chatId, $messageId, $userId, $lang);
             return;
         }
         $stock = $this->supplierCatalog->variantStock((int) $product['variant_id']);
@@ -155,9 +157,10 @@ final class ProductHandler
             [$productId]
         );
         if ($product === null) {
-            $this->list($chatId, $messageId, $lang);
+            $this->list($chatId, $messageId, $userId, $lang);
             return;
         }
+        [$rate, $preference] = $this->priceContext($userId);
         $stockInfo = $this->supplierCatalog->variantStock((int) $product['variant_id']);
         $stock = $stockInfo['available'];
         $displayQuantity = $stock > 0 ? min($quantity, $stock) : 1;
@@ -182,7 +185,7 @@ final class ProductHandler
         }
         $text = '<blockquote><b>' . $lang->get('product_detail') . "</b></blockquote>\n\n"
             . '<b>📦 ' . Helpers::escape($product['name']) . "</b>\n"
-            . '╰ ' . $lang->get('price') . ': <b>' . Helpers::money($product['price']) . "</b>\n"
+            . '╰ ' . $lang->get('price') . ': <b>' . Helpers::formatDualPrice($product['price'], $rate, $preference) . "</b>\n"
             . '╰ ' . $lang->get('stock') . ': <b>' . $stock . "</b>\n"
             . '╰ ' . $lang->get('sold') . ': <b>' . $soldCount . "</b>\n\n"
             . '<b>' . $lang->get('description') . "</b>\n" . $description . "\n\n";
@@ -202,10 +205,10 @@ final class ProductHandler
             $text .= '╰ ' . $lang->get('discount_label') . ': <b>'
                 . $lang->get('discount_summary', [
                     'percent' => $this->bulkDiscounts->formatPercent($pricing['discount_percent']),
-                    'amount' => Helpers::money($pricing['discount_amount']),
+                    'amount' => Helpers::formatDualPrice($pricing['discount_amount'], $rate, $preference),
                 ]) . "</b>\n";
         }
-        $text .= '╰ ' . $lang->get('total') . ': <b>' . Helpers::money($total) . '</b>';
+        $text .= '╰ ' . $lang->get('total') . ': <b>' . Helpers::formatDualPrice($total, $rate, $preference) . '</b>';
         $nextTier = $pricing['next_tier'];
         if (is_array($nextTier) && (int) $nextTier['quantity'] <= $stock) {
             $needed = (int) $nextTier['quantity'] - $quantity;
@@ -264,5 +267,15 @@ final class ProductHandler
                 [$userId, $newMessageId, $productId, $quantity, $version]
             );
         }
+    }
+
+    private function priceContext(int $userId): array
+    {
+        $user = $this->db->fetch('SELECT preferred_payment_method FROM users WHERE id=?', [$userId]);
+        $details = $this->binancePay?->paymentDetails() ?? ['rate' => 0];
+        return [
+            (float) ($details['rate'] ?? 0),
+            (string) ($user['preferred_payment_method'] ?? 'bank'),
+        ];
     }
 }

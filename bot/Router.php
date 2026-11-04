@@ -26,7 +26,7 @@ final class Router
         $this->referrals = new ReferralService($db, $telegram);
         $this->referralHandler = new ReferralHandler($db, $telegram, $this->referrals);
         $this->start = new StartHandler($db, $telegram);
-        $this->products = new ProductHandler($db, $telegram, $supplierCatalog);
+        $this->products = new ProductHandler($db, $telegram, $supplierCatalog, $this->binancePay);
         $this->deposit = new DepositHandler($db, $telegram, $vietQr, $this->binancePay);
         $this->profile = new ProfileHandler($db, $telegram);
         $this->support = new SupportHandler($db, $telegram);
@@ -124,7 +124,7 @@ final class Router
         elseif ($data === 'referral') $this->referralHandler->show($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'referral_check') $this->start->show($chatId, $lang, $messageId);
         elseif ($data === 'language') $this->showLanguage($chatId, $messageId, $lang);
-        elseif ($data === 'products') $this->products->list($chatId, $messageId, $lang);
+        elseif ($data === 'products') $this->products->list($chatId, $messageId, (int) $user['id'], $lang);
         elseif ($data === 'support') $this->support->show($chatId, $messageId, $lang);
         elseif (str_starts_with($data, 'product:')) $this->products->detail($chatId, $messageId, (int) $user['id'], (int) substr($data, 8), $lang);
         elseif (str_starts_with($data, 'notify_stock:')) {
@@ -235,21 +235,25 @@ final class Router
 
         $claimId = (int) $registration['claim_id'];
         $messageId = $registration['message_id'] === null ? null : (int) $registration['message_id'];
+        $keyboard = $this->binanceProgressKeyboard($registration, $lang);
         $messageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_checking_step_1', [
             'order_id' => Helpers::escape($orderId),
-        ]), $lang);
+        ]), $keyboard);
         if ($messageId > 0) {
             $this->binancePay?->attachClaimMessage($claimId, $chatId, $messageId);
             $this->recordBinanceProgressMessage($registration, $userId, $chatId, $messageId);
         }
 
-        $steps = ['binance_checking_step_1', 'binance_checking_step_2', 'binance_checking_step_3', 'binance_checking_step_4'];
+        $steps = [
+            'binance_checking_step_1', 'binance_checking_step_2', 'binance_checking_step_3', 'binance_checking_step_4',
+            'binance_checking_step_5', 'binance_checking_step_6', 'binance_checking_step_7', 'binance_checking_step_8',
+        ];
         foreach ($steps as $index => $step) {
+            sleep(5);
             if ($index > 0) {
-                sleep(4);
                 $updatedMessageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get($step, [
                     'order_id' => Helpers::escape($orderId),
-                ]), $lang);
+                ]), $keyboard);
                 if ($updatedMessageId > 0 && $updatedMessageId !== $messageId) {
                     $messageId = $updatedMessageId;
                     $this->binancePay?->attachClaimMessage($claimId, $chatId, $messageId);
@@ -275,20 +279,33 @@ final class Router
 
         $updatedMessageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_claim_queued', [
             'order_id' => Helpers::escape($orderId),
-        ]), $lang);
+        ]), $keyboard);
         if ($updatedMessageId > 0 && $updatedMessageId !== $messageId) {
             $this->binancePay?->attachClaimMessage($claimId, $chatId, $updatedMessageId);
             $this->recordBinanceProgressMessage($registration, $userId, $chatId, $updatedMessageId);
         }
     }
 
-    private function renderBinanceProgress(int $chatId, ?int $messageId, string $text, Language $lang): int
+    private function renderBinanceProgress(int $chatId, ?int $messageId, string $text, array $keyboard): int
     {
-        $keyboard = [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
         $result = $messageId === null
             ? $this->telegram->sendMessage($chatId, $text, $keyboard)
             : $this->telegram->editMessageOrSend($chatId, $messageId, $text, $keyboard);
         return (int) ($result['result']['message_id'] ?? $messageId ?? 0);
+    }
+
+    private function binanceProgressKeyboard(array $registration, Language $lang): array
+    {
+        if (($registration['request_type'] ?? '') === 'order') {
+            $product = $this->db->fetch(
+                'SELECT v.product_id FROM orders o JOIN variants v ON v.id=o.variant_id WHERE o.id=?',
+                [(int) ($registration['request_id'] ?? 0)]
+            );
+            if ($product !== null) {
+                return [[['text' => $lang->get('back_product_detail'), 'callback_data' => 'product:' . (int) $product['product_id']]]];
+            }
+        }
+        return [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
     }
 
     private function recordBinanceProgressMessage(array $registration, int $userId, int $chatId, int $messageId): void
@@ -320,7 +337,7 @@ final class Router
         };
         $text = $lang->get($key, [
             'order_id' => Helpers::escape($orderId),
-            'amount_usdt' => Helpers::escape((string) ($result['amount_usdt'] ?? '')),
+            'amount_usdt' => Helpers::escape(Helpers::cleanNumber((string) ($result['amount_usdt'] ?? '0'), 8)),
             'amount_vnd' => Helpers::money((string) ($result['amount_vnd'] ?? '0')),
         ]);
         if ($messageId === null) {

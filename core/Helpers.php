@@ -11,14 +11,32 @@ final class Helpers
 
     public static function formatDecimal(float|int|string $value, int $maxDecimals = 6): string
     {
-        $formatted = number_format((float) $value, max(0, $maxDecimals), '.', ',');
-        return rtrim(rtrim($formatted, '0'), '.');
+        $decimals = max(0, $maxDecimals);
+        $formatted = number_format((float) $value, $decimals, '.', ',');
+        return $decimals === 0 ? $formatted : rtrim(rtrim($formatted, '0'), '.');
     }
 
     public static function cleanNumber(float|int|string $value, int $maxDecimals = 8): string
     {
-        $formatted = number_format((float) $value, max(0, $maxDecimals), '.', '');
-        return rtrim(rtrim($formatted, '0'), '.');
+        $decimals = max(0, $maxDecimals);
+        $formatted = number_format((float) $value, $decimals, '.', '');
+        return $decimals === 0 ? $formatted : rtrim(rtrim($formatted, '0'), '.');
+    }
+
+    public static function formatDualPrice(
+        float|int|string $vndAmount,
+        float|int|string $usdtVndRate,
+        string $preference = 'bank'
+    ): string {
+        $rate = (float) $usdtVndRate;
+        $vnd = self::money($vndAmount);
+        if ($rate <= 0) return $vnd;
+
+        $usdt = ceil(((float) $vndAmount / $rate) * 10000) / 10000;
+        $usdtDisplay = self::formatDecimal($usdt, 4) . ' USDT';
+        return $preference === 'binance_pay'
+            ? $usdtDisplay . ' (~ ' . $vnd . ')'
+            : $vnd . ' (~ ' . $usdtDisplay . ')';
     }
 
     public static function escape(?string $text): string

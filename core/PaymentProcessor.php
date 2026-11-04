@@ -35,7 +35,7 @@ final class PaymentProcessor
             $locked = $db->fetch('SELECT * FROM payment_code_registry WHERE id=? FOR UPDATE', [$registry['id']]);
             if ($locked['status'] === 'processed') return ['result' => 'duplicate_code', 'outbox_id' => null];
             $eventId = $this->auditEvent($payment, $amount, $code);
-            $result = $this->processDeposit((int) $locked['request_id'], $amount, $code);
+            $result = $this->processDeposit((int) $locked['request_id'], $amount, $code, $payment);
             $this->finalizePaymentRegistry($locked, $result, $amount, $eventId);
             return ['result' => $result['result'], 'outbox_id' => $result['outbox_id']];
         });
@@ -200,15 +200,22 @@ final class PaymentProcessor
         }
     }
 
-    private function processDeposit(int $depositId, string $amount, string $code): array
+    private function processDeposit(int $depositId, string $amount, string $code, array $payment): array
     {
         $deposit = $this->db->fetch("SELECT * FROM deposits WHERE id=? FOR UPDATE", [$depositId]);
         if ($deposit === null || $deposit['status'] !== 'pending') return $this->result('review', false, null, $depositId);
         $user = $this->db->fetch('SELECT * FROM users WHERE id=? FOR UPDATE', [$deposit['user_id']]);
         if ($user === null) return $this->result('review', false, null, $depositId);
 
+        $binanceOrderId = trim((string) ($payment['binance_order_id'] ?? ''));
+        $binanceUsdtAmount = Helpers::cleanNumber((string) ($payment['binance_usdt_amount'] ?? '0'), 8);
+        $isBinance = $deposit['payment_method'] === 'binance_pay' && $binanceOrderId !== '';
         $referenceCode = trim((string) ($deposit['reference_code'] ?? ''));
-        if ($referenceCode === '') $referenceCode = 'NAP-' . str_pad((string) $depositId, 6, '0', STR_PAD_LEFT);
+        if ($isBinance) {
+            $referenceCode = 'BINANCE-' . $binanceOrderId;
+        } elseif ($referenceCode === '') {
+            $referenceCode = 'NAP-' . str_pad((string) $depositId, 6, '0', STR_PAD_LEFT);
+        }
         $balanceBefore = number_format((float) $user['balance'], 2, '.', '');
         $balanceAfter = number_format((float) $balanceBefore + (float) $amount, 2, '.', '');
         $completedAt = date('Y-m-d H:i:s');
@@ -227,8 +234,10 @@ final class PaymentProcessor
 
         $params = [
             'amount' => Helpers::money($amount),
+            'amount_usdt' => Helpers::escape($binanceUsdtAmount),
+            'order_id' => Helpers::escape($binanceOrderId),
             'balance' => Helpers::money($balanceAfter),
-            'code' => $referenceCode,
+            'code' => Helpers::escape($referenceCode),
             'time' => $displayTime,
             'cleanup_request_type' => 'deposit',
             'cleanup_request_id' => $depositId,
@@ -243,7 +252,7 @@ final class PaymentProcessor
             (int) $user['telegram_id'],
             (string) $user['language'],
             'deposit:' . $depositId . ':user',
-            'deposit_success_detailed',
+            $isBinance ? 'deposit_binance_success' : 'deposit_success_detailed',
             $params,
             $textLink === null ? 'send' : 'edit_or_send',
             $textLink === null ? null : (int) $textLink['chat_id'],
@@ -253,15 +262,22 @@ final class PaymentProcessor
         $customer = trim((string) $user['first_name'] . ' ' . (string) ($user['last_name'] ?? ''));
         if (trim((string) ($user['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $user['username']);
         foreach (Helpers::adminTelegramIds($this->app) as $adminId) {
-            $this->outbox->enqueueAdmin($adminId, 'deposit:' . $depositId . ':admin:' . $adminId, 'admin_deposit_success', [
-                'customer' => $customer !== '' ? $customer : '-',
-                'telegram_id' => (string) $user['telegram_id'],
-                'amount' => Helpers::money($amount),
-                'balance' => Helpers::money($balanceAfter),
-                'payment_code' => $code,
-                'code' => $referenceCode,
-                'time' => $displayTime,
-            ]);
+            $this->outbox->enqueueAdmin(
+                $adminId,
+                'deposit:' . $depositId . ':admin:' . $adminId,
+                $isBinance ? 'admin_deposit_binance_success' : 'admin_deposit_success',
+                [
+                    'customer' => $customer !== '' ? $customer : '-',
+                    'telegram_id' => (string) $user['telegram_id'],
+                    'amount' => Helpers::money($amount),
+                    'amount_usdt' => Helpers::escape($binanceUsdtAmount),
+                    'order_id' => Helpers::escape($binanceOrderId),
+                    'balance' => Helpers::money($balanceAfter),
+                    'payment_code' => Helpers::escape($code),
+                    'code' => Helpers::escape($referenceCode),
+                    'time' => $displayTime,
+                ]
+            );
         }
         return $this->result('deposit_completed', true, null, $depositId, '0.00', $amount, $outboxId);
     }

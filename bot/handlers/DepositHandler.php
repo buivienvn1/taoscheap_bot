@@ -28,8 +28,9 @@ final class DepositHandler
     {
         $deposit = $this->db->transaction(function (Database $db) use ($userId): array {
             $db->fetch('SELECT id FROM users WHERE id = ? FOR UPDATE', [$userId]);
+            $db->execute("UPDATE users SET preferred_payment_method='bank' WHERE id=?", [$userId]);
             $pending = $db->fetch(
-                "SELECT * FROM deposits WHERE user_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1 FOR UPDATE",
+                "SELECT * FROM deposits WHERE user_id = ? AND payment_method='vietqr' AND status = 'pending' ORDER BY id DESC LIMIT 1 FOR UPDATE",
                 [$userId]
             );
             if ($pending !== null) {
@@ -88,6 +89,7 @@ final class DepositHandler
     {
         $deposit = $this->db->transaction(function (Database $db) use ($userId): array {
             $db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$userId]);
+            $db->execute("UPDATE users SET preferred_payment_method='binance_pay' WHERE id=?", [$userId]);
             $pending = $db->fetch(
                 "SELECT * FROM deposits WHERE user_id=? AND payment_method='binance_pay' AND status='pending' ORDER BY id DESC LIMIT 1 FOR UPDATE",
                 [$userId]
