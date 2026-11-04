@@ -34,7 +34,7 @@ final class BinancePayService
         if (!$this->isEnabled()) return ['result' => 'disabled'];
 
         return $this->db->transaction(function (Database $db) use ($userId, $chatId, $orderId): array {
-            $request = $this->pendingRequest($userId, true);
+            $request = $this->activeRequest($userId, true);
             if ($request === null) return ['result' => 'no_pending_request'];
 
             $transaction = $db->fetch('SELECT claimed_at FROM binance_pay_transactions WHERE binance_order_id=? FOR UPDATE', [$orderId]);
@@ -231,34 +231,36 @@ final class BinancePayService
         ];
     }
 
-    private function pendingRequest(int $userId, bool $forUpdate = false): ?array
+    private function activeRequest(int $userId, bool $forUpdate = false): ?array
     {
         $suffix = $forUpdate ? ' FOR UPDATE' : '';
-        $request = $this->db->fetch(
-            "SELECT 'order' request_type,id,amount,payment_code FROM orders
-             WHERE user_id=? AND payment_method='binance_pay' AND status='pending' AND binance_order_id IS NULL
+        $link = $this->db->fetch(
+            "SELECT request_type,request_id FROM payment_message_links
+             WHERE user_id=? AND is_active=1 AND message_type='text'
              ORDER BY id DESC LIMIT 1" . $suffix,
             [$userId]
         );
-        if ($request !== null) return $request;
-        return $this->db->fetch(
-            "SELECT 'deposit' request_type,id,0.00 amount,code payment_code FROM deposits
-             WHERE user_id=? AND payment_method='binance_pay' AND status='pending' AND binance_order_id IS NULL
-             ORDER BY id DESC LIMIT 1" . $suffix,
-            [$userId]
+        if ($link === null) return null;
+        return $this->requestByIdentity(
+            $userId,
+            (string) $link['request_type'],
+            (int) $link['request_id'],
+            $forUpdate
         );
     }
 
-    private function requestByIdentity(int $userId, string $type, int $requestId): ?array
+    private function requestByIdentity(int $userId, string $type, int $requestId, bool $forUpdate = false): ?array
     {
+        $suffix = $forUpdate ? ' FOR UPDATE' : '';
         if ($type === 'order') {
             return $this->db->fetch(
-                "SELECT 'order' request_type,id,amount,payment_code FROM orders WHERE id=? AND user_id=? AND payment_method='binance_pay' AND status='pending' AND binance_order_id IS NULL",
+                "SELECT 'order' request_type,id,amount,payment_code FROM orders WHERE id=? AND user_id=? AND payment_method='binance_pay' AND status='pending' AND binance_order_id IS NULL" . $suffix,
                 [$requestId, $userId]
             );
         }
+        if ($type !== 'deposit') return null;
         return $this->db->fetch(
-            "SELECT 'deposit' request_type,id,0.00 amount,code payment_code FROM deposits WHERE id=? AND user_id=? AND payment_method='binance_pay' AND status='pending' AND binance_order_id IS NULL",
+            "SELECT 'deposit' request_type,id,0.00 amount,code payment_code FROM deposits WHERE id=? AND user_id=? AND payment_method='binance_pay' AND status='pending' AND binance_order_id IS NULL" . $suffix,
             [$requestId, $userId]
         );
     }

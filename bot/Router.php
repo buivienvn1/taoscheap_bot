@@ -235,10 +235,9 @@ final class Router
 
         $claimId = (int) $registration['claim_id'];
         $messageId = $registration['message_id'] === null ? null : (int) $registration['message_id'];
-        $keyboard = $this->binanceProgressKeyboard($registration, $lang);
         $messageId = $this->renderBinanceProgress($chatId, $messageId, $lang->get('binance_verifying', [
             'order_id' => Helpers::escape($orderId),
-        ]), $keyboard);
+        ]), []);
         if ($messageId > 0) {
             $this->binancePay?->attachClaimMessage($claimId, $chatId, $messageId);
             $this->recordBinanceProgressMessage($registration, $userId, $chatId, $messageId);
@@ -266,20 +265,6 @@ final class Router
             ? $this->telegram->sendMessage($chatId, $text, $keyboard)
             : $this->telegram->editMessageOrSend($chatId, $messageId, $text, $keyboard);
         return (int) ($result['result']['message_id'] ?? $messageId ?? 0);
-    }
-
-    private function binanceProgressKeyboard(array $registration, Language $lang): array
-    {
-        if (($registration['request_type'] ?? '') === 'order') {
-            $product = $this->db->fetch(
-                'SELECT v.product_id FROM orders o JOIN variants v ON v.id=o.variant_id WHERE o.id=?',
-                [(int) ($registration['request_id'] ?? 0)]
-            );
-            if ($product !== null) {
-                return [[['text' => $lang->get('back_product_detail'), 'callback_data' => 'product:' . (int) $product['product_id']]]];
-            }
-        }
-        return [[['text' => $lang->get('main_menu'), 'callback_data' => 'start']]];
     }
 
     private function recordBinanceProgressMessage(array $registration, int $userId, int $chatId, int $messageId): void

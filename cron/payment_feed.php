@@ -38,7 +38,7 @@ try {
             $result['message_cleanups'] = $outbox->retryCleanupBatch(100);
             fwrite(STDOUT, json_encode($result) . PHP_EOL);
         } catch (Throwable $error) {
-            error_log('Payment feed failed: ' . $error::class);
+            error_log('Payment feed failed: ' . $error::class . ': ' . $error->getMessage());
         }
 
         $remainingSeconds = 50 - (time() - $startedAt);

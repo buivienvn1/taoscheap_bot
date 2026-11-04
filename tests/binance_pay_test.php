@@ -80,6 +80,7 @@ $migration = file_get_contents($root . '/migrations/019_binance_pending_claims.s
 $service = file_get_contents($root . '/core/BinancePayService.php') ?: '';
 $router = file_get_contents($root . '/bot/Router.php') ?: '';
 $orderHandler = file_get_contents($root . '/bot/handlers/OrderHandler.php') ?: '';
+$depositHandler = file_get_contents($root . '/bot/handlers/DepositHandler.php') ?: '';
 $productHandler = file_get_contents($root . '/bot/handlers/ProductHandler.php') ?: '';
 $processor = file_get_contents($root . '/core/PaymentProcessor.php') ?: '';
 $moneyFormatter = file_get_contents($root . '/core/MoneyFormatter.php') ?: '';
@@ -94,10 +95,18 @@ $assert(str_contains($service, "WHERE id=? AND status='pending' AND expires_at>N
 $assert(str_contains($service, "status='processing' AND last_checked_at<DATE_SUB(NOW(), INTERVAL 2 MINUTE)"), 'stuck processing claims are recoverable');
 $assert(str_contains($service, 'DATE_ADD(NOW(), INTERVAL 30 MINUTE)'), 'pending claims expire after 30 minutes');
 $assert(str_contains($router, "'binance_verifying'"), 'fast path renders one stable verification message');
+$assert((bool) preg_match("/get\('binance_verifying',[\\s\\S]*?\]\), \[\]\);/", $router), 'verification message has no inline keyboard');
+$assert(!str_contains($router, 'binanceProgressKeyboard'), 'obsolete verification navigation helper is removed');
 $assert(!str_contains($router, 'sleep(5)'), 'fast path no longer uses artificial polling delays');
 $assert(str_contains($router, "['not_found', 'processing', 'processing_failed']"), 'recoverable claims keep the stable verification message');
 $assert(str_contains($router, 'deleteMessage($chatId, $inputMessageId)'), 'submitted Order ID message is cleaned up');
 $assert(str_contains($router, 'recordBinanceProgressMessage'), 'verification message is registered for final outbox edit');
+$assert(str_contains($service, 'private function activeRequest('), 'claim registration resolves the active payment screen context');
+$assert((bool) preg_match("/FROM payment_message_links\\s+WHERE user_id=\\? AND is_active=1 AND message_type='text'\\s+ORDER BY id DESC LIMIT 1/", $service), 'latest active payment message determines claim context');
+$assert(!str_contains($service, 'private function pendingRequest('), 'claim registration no longer prioritizes pending orders globally');
+$assert(str_contains($service, "if (\$request['request_type'] === 'order' && (float) \$amountVnd < (float) \$request['amount'])"), 'short payment validation applies only to purchase orders');
+$assert(str_contains($depositHandler, "WHERE user_id=? AND is_active=1"), 'opening Binance deposit supersedes older active payment contexts');
+$assert(str_contains($orderHandler, "WHERE user_id=? AND is_active=1"), 'opening an order payment screen supersedes older active payment contexts');
 $assert((bool) preg_match('/use\s*\([^)]*\$requestToken\s*,\s*\$paymentMethod\s*\)/s', $orderHandler), 'pending order transaction captures the selected payment method');
 $assert(str_contains($productHandler, 'Helpers::formatDualPrice($product[\'price\'], $rate, $preference, true)'), 'product list enables a copyable secondary price');
 $assert(str_contains($orderHandler, 'u.preferred_payment_method'), 'wallet delivery loads the latest user price preference');
@@ -113,6 +122,7 @@ $assert(str_contains($vi['product_item_sub'] ?? '', '<code>:count</code>'), 'Vie
 $assert(str_contains($en['product_item_sub'] ?? '', '<code>:count</code>'), 'English product stock is copyable');
 $assert(str_contains($cron, '$binancePay->processPendingClaims(100)'), 'payment cron processes delayed Binance claims');
 $assert(str_contains($cron, '$outbox->retryBatch(100)'), 'payment cron delivers queued claim notifications');
+$assert(str_contains($cron, '$error::class') && str_contains($cron, '$error->getMessage()'), 'payment cron logs actionable failure details');
 $assert(array_diff_key($vi, $en) === [] && array_diff_key($en, $vi) === [], 'Vietnamese and English language keys stay in sync');
 foreach (['binance_verifying', 'binance_claim_expired', 'deposit_binance_success', 'admin_deposit_binance_success', 'back_product_detail', 'product_item_sub'] as $key) {
     $assert(isset($vi[$key], $en[$key]), 'both languages define ' . $key);

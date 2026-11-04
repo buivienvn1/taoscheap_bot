@@ -136,8 +136,8 @@ final class DepositHandler
             $deposit = $db->fetch('SELECT status FROM deposits WHERE id=? AND user_id=? FOR UPDATE', [$depositId, $userId]);
             if ($deposit === null || $deposit['status'] !== 'pending') return;
             $db->execute(
-                "UPDATE payment_message_links SET is_active=0,cleanup_status='superseded' WHERE request_type='deposit' AND request_id=? AND is_active=1",
-                [$depositId]
+                "UPDATE payment_message_links SET is_active=0,cleanup_status='superseded' WHERE user_id=? AND is_active=1",
+                [$userId]
             );
             $db->execute(
                 "INSERT INTO payment_message_links(request_type,request_id,user_id,chat_id,message_id,message_type,qr_url)
