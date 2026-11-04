@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 final class ReferralService
 {
+    private MoneyFormatter $money;
+
     public function __construct(private Database $db, private Telegram $telegram, private array $app = [])
     {
+        $this->money = new MoneyFormatter($db);
     }
 
     public function config(): array
@@ -178,7 +181,9 @@ final class ReferralService
             }
             $outbox = new NotificationOutbox($this->db, $this->telegram);
             $outbox->enqueue((int) $referral['inviter_id'], 'referral:' . $referral['id'], 'referral_reward_received', [
-                'reward' => Helpers::money($reward), 'balance' => Helpers::money($after['balance']), 'code' => $code,
+                'reward' => $this->money->forUser($reward, (int) $referral['inviter_id']),
+                'balance' => $this->money->forUser($after['balance'], (int) $referral['inviter_id']),
+                'code' => $code,
             ]);
             $customer = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
             if (trim((string) ($user['username'] ?? '')) !== '') $customer .= ' · @' . trim((string) $user['username']);
@@ -187,8 +192,8 @@ final class ReferralService
                 $outbox->enqueueAdmin($adminId, 'referral:' . $referral['id'] . ':admin:' . $adminId, 'admin_referral_reward_paid', [
                     'customer' => Helpers::escape($customer !== '' ? $customer : '-'),
                     'telegram_id' => Helpers::escape((string) ($user['telegram_id'] ?? '')),
-                    'reward' => Helpers::money($reward),
-                    'balance' => Helpers::money($after['balance']),
+                    'reward' => $this->money->admin($reward),
+                    'balance' => $this->money->admin($after['balance']),
                     'code' => Helpers::escape($code),
                     'order' => Helpers::escape((string) ($order['order_code'] ?? '-')),
                     'time' => Helpers::dateTime(date('Y-m-d H:i:s')),
@@ -219,14 +224,15 @@ final class ReferralService
         return $paid;
     }
 
-    public static function instructions(string $raw, Language $lang, int $reward): string
+    public static function instructions(string $raw, Language $lang, int $reward, ?string $displayReward = null): string
     {
         $text = Helpers::extractMultilingualText($raw, $lang->code());
         if (trim($text) === '') $text = $lang->get('referral_instructions_default');
+        $displayReward ??= Helpers::money($reward);
         // Expand only in text nodes, never inside an href or other HTML attribute.
         $parts = preg_split('/(<[^>]*>)/u', Helpers::sanitizeTelegramHtml($text), -1, PREG_SPLIT_DELIM_CAPTURE) ?: [];
         foreach ($parts as &$part) {
-            if (!str_starts_with($part, '<')) $part = str_replace('{reward}', Helpers::escape(Helpers::money($reward)), $part);
+            if (!str_starts_with($part, '<')) $part = str_replace('{reward}', Helpers::escape($displayReward), $part);
         }
         return implode('', $parts);
     }

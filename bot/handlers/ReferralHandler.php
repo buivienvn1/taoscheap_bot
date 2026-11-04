@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 final class ReferralHandler
 {
+    private MoneyFormatter $money;
+
     public function __construct(private Database $db, private Telegram $telegram, private ReferralService $referrals)
     {
+        $this->money = new MoneyFormatter($db);
     }
 
     public function show(int $chatId, int $messageId, int $userId, Language $lang): void
@@ -24,11 +27,17 @@ final class ReferralHandler
         // The dashboard advertises the current rate for newly invited friends.
         $reward = (int) $config['reward'];
         $link = 'https://t.me/' . $config['bot_username'] . '?start=' . $this->referrals->code($userId);
+        $preference = $this->money->preference($userId);
         $text = $lang->get('referral_dashboard', [
-            'reward' => Helpers::escape(Helpers::money($reward)), 'invited' => (int) $stats['invited'],
-            'rewarded' => (int) $stats['rewarded'], 'earned' => Helpers::escape(Helpers::money($stats['earned'])),
+            'reward' => Helpers::escape($this->money->format($reward, $preference)), 'invited' => (int) $stats['invited'],
+            'rewarded' => (int) $stats['rewarded'], 'earned' => Helpers::escape($this->money->format($stats['earned'], $preference)),
             'link' => Helpers::escape($link),
-        ]) . "\n\n" . $lang->get('referral_how') . "\n" . ReferralService::instructions($config['instructions'], $lang, $reward);
+        ]) . "\n\n" . $lang->get('referral_how') . "\n" . ReferralService::instructions(
+            $config['instructions'],
+            $lang,
+            $reward,
+            $this->money->format($reward, $preference)
+        );
         $share = 'https://t.me/share/url?' . http_build_query(['url' => $link, 'text' => $lang->get('referral_share_message')], '', '&', PHP_QUERY_RFC3986);
         $this->telegram->editMessage($chatId, $messageId, $text, [
             [['text' => $lang->get('referral_share'), 'url' => $share]],

@@ -150,7 +150,7 @@ $form = $editing ?? [];
         <?php foreach ($products as $product): ?>
             <tr>
                 <td><?= e($product['name']) ?></td>
-                <td><?= e(Helpers::money($product['price'] ?? 0)) ?></td>
+                <td><?= e($moneyFormatter->admin($product['price'] ?? 0)) ?></td>
                 <td><?= e($product['available']) ?></td>
                 <td><?= e($product['order_count']) ?></td>
                 <td><?= (int) ($product['fake_sold'] ?? 0) > 0 ? '+' . e($product['fake_sold']) : '0' ?></td>

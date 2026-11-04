@@ -7,6 +7,7 @@ final class OrderHandler
     private NotificationOutbox $outbox;
     private ReferralService $referrals;
     private BulkDiscountService $bulkDiscounts;
+    private MoneyFormatter $money;
 
     public function __construct(
         private Database $db,
@@ -21,6 +22,7 @@ final class OrderHandler
         $this->outbox = new NotificationOutbox($db, $telegram);
         $this->referrals = $referrals ?? new ReferralService($db, $telegram);
         $this->bulkDiscounts = new BulkDiscountService($db);
+        $this->money = new MoneyFormatter($db);
     }
 
     public function checkout(
@@ -110,7 +112,7 @@ final class OrderHandler
                     'product' => Helpers::escape($variant['product_name']),
                     'quantity' => $quantity,
                 ]) . "\n"
-                . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($walletAmount)]) . "\n" : '')
+                . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => $this->money->format($walletAmount, 'binance_pay')]) . "\n" : '')
                 . $lang->get('binance_order_amount_line', [
                     'amount' => Helpers::money($bankAmount),
                     'usdt' => Helpers::escape($usdtAmount),
@@ -135,8 +137,8 @@ final class OrderHandler
                 'product' => Helpers::escape($variant['product_name']),
                 'quantity' => $quantity,
             ]) . "\n"
-            . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => Helpers::money($walletAmount)]) . "\n" : '')
-            . $lang->get('payment_compact_need_pay', ['amount' => Helpers::money($bankAmount)]) . "\n"
+            . ((float) $walletAmount > 0 ? $lang->get('payment_wallet_deducted_line', ['amount' => $this->money->format($walletAmount, 'bank')]) . "\n" : '')
+            . $lang->get('payment_compact_need_pay', ['amount' => $this->money->format($bankAmount, 'bank')]) . "\n"
             . $lang->get('payment_bank_line', [
                 'bank' => Helpers::escape($bank['bank_id']),
                 'account' => Helpers::escape($bank['account_number']),
@@ -289,13 +291,11 @@ final class OrderHandler
             [$orderId]
         );
         $deliveries = $db->fetchAll('SELECT content FROM order_deliveries WHERE order_id=? ORDER BY id', [$orderId]);
-        $rate = (float) (($this->binancePay?->paymentDetails()['rate'] ?? 0));
         $message = $lang->get('order_result_success', [
             'product' => Helpers::escape((string) $order['product_name']),
             'quantity' => (int) $order['quantity'],
-            'amount' => Helpers::formatDualPrice(
+            'amount' => $this->money->format(
                 (float) $order['amount'] + (float) $order['wallet_amount'],
-                $rate,
                 (string) ($order['preferred_payment_method'] ?? 'bank')
             ),
             'order' => Helpers::escape((string) $order['order_code']),
@@ -303,7 +303,7 @@ final class OrderHandler
         ]);
         if ((float) ($order['discount_amount'] ?? 0) > 0) {
             $message .= "\n" . $lang->get('order_discount_line', [
-                'amount' => Helpers::money($order['discount_amount']),
+                'amount' => $this->money->format($order['discount_amount'], (string) ($order['preferred_payment_method'] ?? 'bank')),
             ]);
         }
         foreach ($deliveries as $index => $delivery) {
@@ -330,7 +330,7 @@ final class OrderHandler
                 'telegram_id' => (string) $user['telegram_id'],
                 'product' => (string) ($variant['product_name'] ?: '-'),
                 'quantity' => $quantity,
-                'amount' => Helpers::money($total),
+                'amount' => $this->money->admin($total),
                 'payment_method' => $vi->get('payment_method_wallet'),
                 'code' => $orderCode,
                 'time' => Helpers::dateTime($completedAt),
@@ -348,8 +348,8 @@ final class OrderHandler
             'quantity' => (int) ($order['quantity'] ?? 0),
             'customer' => Helpers::escape($customer !== '' ? $customer : '-'),
             'telegram_id' => Helpers::escape((string) ($user['telegram_id'] ?? '')),
-            'amount' => Helpers::money($amount),
-            'balance' => Helpers::money($balance),
+            'amount' => $this->money->admin($amount),
+            'balance' => $this->money->admin($balance),
             'payment_code' => '-',
             'reason' => 'fulfillment_failed',
             'time' => Helpers::dateTime(date('Y-m-d H:i:s')),
@@ -444,7 +444,7 @@ final class OrderHandler
         });
 
         $this->telegram->editMessage($chatId, $messageId, $lang->get($result['key'], [
-            'amount' => Helpers::money($result['amount']),
+            'amount' => $this->money->forUser($result['amount'], $userId),
         ]), [[['text' => $lang->get('products_button'), 'callback_data' => 'products']]]);
     }
 

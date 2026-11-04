@@ -96,8 +96,8 @@ unset($queryBase['p'], $queryBase['message']);
                             </span>
                             <br><small><?= e($row['language_code'] ?? '-') ?></small>
                         </td>
-                        <td><b><?= e(Helpers::money($row['balance'])) ?></b></td>
-                        <td><code><?= e(Helpers::money($row['total_spent'])) ?></code></td>
+                        <td><b><?= e($moneyFormatter->admin($row['balance'])) ?></b></td>
+                        <td><code><?= e($moneyFormatter->admin($row['total_spent'])) ?></code></td>
                         <td>
                             <b><?= e($adminLang->get('admin_orders_completed_count', ['completed' => (string) $row['completed_orders_count']])) ?></b><br>
                             <small class="muted"><?= e($adminLang->get('admin_orders_total_sub', ['total' => (string) $row['total_orders_count']])) ?></small>
@@ -155,8 +155,8 @@ unset($queryBase['p'], $queryBase['message']);
         </div>
     </div>
 </div>
-<script type="application/json" id="user-adjust-data"><?= json_encode(array_reduce($rows, static function (array $users, array $row): array {
-    $users[(string) $row['id']] = ['name' => trim((string) $row['first_name'] . ' ' . (string) ($row['last_name'] ?? '')) ?: '-', 'balance' => Helpers::money($row['balance'])];
+<script type="application/json" id="user-adjust-data"><?= json_encode(array_reduce($rows, static function (array $users, array $row) use ($moneyFormatter): array {
+    $users[(string) $row['id']] = ['name' => trim((string) $row['first_name'] . ' ' . (string) ($row['last_name'] ?? '')) ?: '-', 'balance' => $moneyFormatter->admin($row['balance'])];
     return $users;
 }, []), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
 <script>

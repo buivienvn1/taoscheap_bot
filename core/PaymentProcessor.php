@@ -5,6 +5,8 @@ declare(strict_types=1);
 final class PaymentProcessor
 {
     private ReferralService $referrals;
+    private MoneyFormatter $money;
+
     public function __construct(
         private Database $db,
         private NotificationOutbox $outbox,
@@ -13,6 +15,7 @@ final class PaymentProcessor
         ?ReferralService $referrals = null
     ) {
         $this->referrals = $referrals ?? new ReferralService($db, new Telegram($app['bot_token']), $app);
+        $this->money = new MoneyFormatter($db);
     }
 
     public function process(array $payment): array
@@ -76,7 +79,13 @@ final class PaymentProcessor
                 return ['result' => 'review', 'outbox_id' => null];
             }
             if (!$delivery['success']) {
-                $params = ['order' => Helpers::escape((string) $order['order_code']), 'amount' => Helpers::money($amount)];
+                $params = [
+                    'order' => Helpers::escape((string) $order['order_code']),
+                    'amount' => $this->money->format(
+                        $amount,
+                        (string) ($order['preferred_payment_method'] ?? 'bank')
+                    ),
+                ];
                 $result = $this->refundOrder($order, $amount, $code, 'out_of_stock', 'order_result_out_of_stock', $params);
             } else {
                 $result = $this->completePaidOrder($order, $amount, $delivery['items'] ?? []);
@@ -96,7 +105,7 @@ final class PaymentProcessor
         foreach ($rows as $row) {
             $didExpire = $this->db->transaction(function (Database $db) use ($row): bool {
                 $order = $db->fetch(
-                    "SELECT o.*,u.telegram_id,u.language FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE",
+                    "SELECT o.*,u.telegram_id,u.language,u.preferred_payment_method FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE",
                     [(int) $row['id']]
                 );
                 if ($order === null || $order['status'] !== 'pending' || $order['payment_method'] !== 'hybrid'
@@ -123,7 +132,10 @@ final class PaymentProcessor
                     'order:' . $order['id'] . ':expired',
                     'order_expired_wallet_refunded',
                     [
-                        'amount' => Helpers::money($walletAmount),
+                        'amount' => $this->money->format(
+                            $walletAmount,
+                            (string) ($order['preferred_payment_method'] ?? 'bank')
+                        ),
                         'order' => (string) $order['order_code'],
                         'cleanup_request_type' => 'order',
                         'cleanup_request_id' => (int) $order['id'],
@@ -233,10 +245,10 @@ final class PaymentProcessor
         );
 
         $params = [
-            'amount' => Helpers::money($amount),
+            'amount' => $this->money->forUser($amount, (int) $deposit['user_id']),
             'amount_usdt' => Helpers::escape($binanceUsdtAmount),
             'order_id' => Helpers::escape($binanceOrderId),
-            'balance' => Helpers::money($balanceAfter),
+            'balance' => $this->money->forUser($balanceAfter, (int) $deposit['user_id']),
             'code' => Helpers::escape($referenceCode),
             'time' => $displayTime,
             'cleanup_request_type' => 'deposit',
@@ -269,10 +281,10 @@ final class PaymentProcessor
                 [
                     'customer' => $customer !== '' ? $customer : '-',
                     'telegram_id' => (string) $user['telegram_id'],
-                    'amount' => Helpers::money($amount),
+                    'amount' => $this->money->admin($amount),
                     'amount_usdt' => Helpers::escape($binanceUsdtAmount),
                     'order_id' => Helpers::escape($binanceOrderId),
-                    'balance' => Helpers::money($balanceAfter),
+                    'balance' => $this->money->admin($balanceAfter),
                     'payment_code' => Helpers::escape($code),
                     'code' => Helpers::escape($referenceCode),
                     'time' => $displayTime,
@@ -287,7 +299,13 @@ final class PaymentProcessor
         $order = $this->db->fetch("SELECT o.*,v.status variant_status,p.status product_status,u.telegram_id,u.username,u.first_name,u.last_name,u.language,u.preferred_payment_method FROM orders o JOIN variants v ON v.id=o.variant_id JOIN products p ON p.id=v.product_id JOIN users u ON u.id=o.user_id WHERE o.id=? FOR UPDATE", [$orderId]);
         if ($order === null) return $this->result('review', false, $orderId);
         $this->db->fetch('SELECT id FROM users WHERE id=? FOR UPDATE', [$order['user_id']]);
-        $params = ['order' => Helpers::escape((string) $order['order_code']), 'amount' => Helpers::money($amount)];
+        $params = [
+            'order' => Helpers::escape((string) $order['order_code']),
+            'amount' => $this->money->format(
+                $amount,
+                (string) ($order['preferred_payment_method'] ?? 'bank')
+            ),
+        ];
         if ($order['status'] !== 'pending') {
             $balanceAfter = $this->creditWallet($order, $amount, 'closed_order_payment');
             $closedReason = (string) ($order['result_reason'] ?: $order['status']);
@@ -303,8 +321,8 @@ final class PaymentProcessor
                 [$amount, $storedReason, $orderId]
             );
             $this->enqueueOrderBalanceAdmins($order, 'admin_order_closed_payment', [
-                'amount' => Helpers::money($amount),
-                'balance' => Helpers::money($balanceAfter),
+                'amount' => $this->money->admin($amount),
+                'balance' => $this->money->admin($balanceAfter),
                 'payment_code' => Helpers::escape($code),
                 'reason' => Helpers::escape($closedReason),
                 'time' => Helpers::dateTime(date('Y-m-d H:i:s')),
@@ -331,16 +349,18 @@ final class PaymentProcessor
         if ((float) $extra > 0) $this->creditWallet($order, $extra, 'overpayment');
         $params['product'] = (string) ($order['product_name'] ?: '-');
         $params['quantity'] = (int) $order['quantity'];
-        $params['amount'] = $this->formatOrderAmount($total, (string) ($order['preferred_payment_method'] ?? 'bank'));
+        $params['amount'] = $this->money->format($total, (string) ($order['preferred_payment_method'] ?? 'bank'));
         $params['time'] = Helpers::dateTime($completedAt);
-        $params['extra'] = (float) $extra > 0 ? Helpers::money($extra) : '';
+        $params['extra'] = (float) $extra > 0
+            ? $this->money->format($extra, (string) ($order['preferred_payment_method'] ?? 'bank'))
+            : '';
         $params['deliveries'] = $contents;
         $params['cleanup_request_type'] = 'order';
         $params['cleanup_request_id'] = $orderId;
         $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'order:' . $orderId . ':user', 'order_result_success', $params);
         $order['total_amount'] = $total;
         $order['extra_amount'] = (float) $extra > 0
-            ? (new Language('vi'))->get('admin_order_overpayment', ['amount' => Helpers::money($extra)])
+            ? (new Language('vi'))->get('admin_order_overpayment', ['amount' => $this->money->admin($extra)])
             : '';
         $this->enqueueOrderAdmins($order, Helpers::dateTime($completedAt));
         return $this->result('order_delivered', true, $orderId, null, $total, $extra, $outboxId);
@@ -354,11 +374,22 @@ final class PaymentProcessor
         $this->db->execute("UPDATE orders SET stock_content=?,status='completed',result_reason='delivered',wallet_credited=?,completed_at=? WHERE id=?", [implode("\n", $contents), max(0, (float) $extra), $completedAt, $order['id']]);
         $this->db->execute("INSERT INTO transactions(user_id,type,amount,reference_type,reference_id,reference_code,note) VALUES(?,'purchase',?,'order',?,?,?)", [$order['user_id'], -((float) $order['amount']), $order['id'], $order['order_code'], $order['order_code']]);
         if ((float) $extra > 0) $this->creditWallet($order, $extra, 'overpayment');
-        $params = ['order' => Helpers::escape((string) $order['order_code']), 'product' => (string) ($order['product_name'] ?: '-'), 'quantity' => (int) $order['quantity'], 'amount' => $this->formatOrderAmount($total, (string) ($order['preferred_payment_method'] ?? 'bank')), 'time' => Helpers::dateTime($completedAt), 'extra' => (float) $extra > 0 ? Helpers::money($extra) : '', 'deliveries' => $contents, 'cleanup_request_type' => 'order', 'cleanup_request_id' => (int) $order['id']];
+        $preference = (string) ($order['preferred_payment_method'] ?? 'bank');
+        $params = [
+            'order' => Helpers::escape((string) $order['order_code']),
+            'product' => (string) ($order['product_name'] ?: '-'),
+            'quantity' => (int) $order['quantity'],
+            'amount' => $this->money->format($total, $preference),
+            'time' => Helpers::dateTime($completedAt),
+            'extra' => (float) $extra > 0 ? $this->money->format($extra, $preference) : '',
+            'deliveries' => $contents,
+            'cleanup_request_type' => 'order',
+            'cleanup_request_id' => (int) $order['id'],
+        ];
         $outboxId = $this->outbox->enqueue((int) $order['user_id'], 'order:' . $order['id'] . ':user', 'order_result_success', $params);
         $order['total_amount'] = $total;
         $order['extra_amount'] = (float) $extra > 0
-            ? (new Language('vi'))->get('admin_order_overpayment', ['amount' => Helpers::money($extra)])
+            ? (new Language('vi'))->get('admin_order_overpayment', ['amount' => $this->money->admin($extra)])
             : '';
         $this->enqueueOrderAdmins($order, Helpers::dateTime($completedAt));
         return $this->result('order_delivered', true, (int) $order['id'], null, $total, $extra, $outboxId);
@@ -379,10 +410,13 @@ final class PaymentProcessor
         $refund = number_format((float) $amount + (float) $order['wallet_amount'], 2, '.', '');
         $balanceAfter = $this->creditWallet($order, $refund, $reason);
         $this->db->execute("UPDATE orders SET status='failed',result_reason=?,wallet_credited=?,paid_at=NOW(),completed_at=NOW() WHERE id=?", [$reason, $refund, $order['id']]);
-        $params['amount'] = Helpers::money($refund);
+        $params['amount'] = $this->money->format(
+            $refund,
+            (string) ($order['preferred_payment_method'] ?? 'bank')
+        );
         $this->enqueueOrderBalanceAdmins($order, 'admin_order_refund', [
-            'amount' => Helpers::money($refund),
-            'balance' => Helpers::money($balanceAfter),
+            'amount' => $this->money->admin($refund),
+            'balance' => $this->money->admin($balanceAfter),
             'payment_code' => Helpers::escape($code),
             'reason' => Helpers::escape($reason),
             'time' => Helpers::dateTime(date('Y-m-d H:i:s')),
@@ -401,7 +435,7 @@ final class PaymentProcessor
                 'telegram_id' => Helpers::escape((string) $order['telegram_id']),
                 'product' => Helpers::escape((string) ($order['product_name'] ?: '-')),
                 'quantity' => (int) $order['quantity'],
-                'amount' => Helpers::money($order['total_amount'] ?? ((float) $order['amount'] + (float) $order['wallet_amount'])),
+                'amount' => $this->money->admin($order['total_amount'] ?? ((float) $order['amount'] + (float) $order['wallet_amount'])),
                 'payment_method' => (new Language('vi'))->get('payment_method_' . $order['payment_method']),
                 'code' => Helpers::escape((string) $order['order_code']),
                 'time' => $displayTime,
@@ -438,13 +472,6 @@ final class PaymentProcessor
             [$order['user_id'], $amount, $balanceBefore, $balanceAfter, $order['id'], $order['order_code'], $reason]
         );
         return $balanceAfter;
-    }
-
-    private function formatOrderAmount(float|int|string $amount, string $preference): string
-    {
-        $setting = $this->db->fetch("SELECT key_value FROM settings WHERE key_name='binance_pay_rate_usdt_vnd'");
-        $rate = (float) ($setting['key_value'] ?? 0);
-        return Helpers::formatDualPrice($amount, $rate > 0 ? $rate : 25500.0, $preference);
     }
 
     private function result(string $result, bool $final, ?int $orderId = null, ?int $depositId = null, string $purchase = '0.00', string $wallet = '0.00', ?int $outboxId = null): array

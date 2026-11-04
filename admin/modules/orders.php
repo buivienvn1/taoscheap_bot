@@ -11,7 +11,7 @@ $formatCustomer = static function (array $order): string {
     return trim($name . ($username !== '' ? ' @' . $username : '')) ?: '-';
 };
 
-$buildOrderDetail = static function (array $order, array $deliveries) use ($formatCustomer): array {
+$buildOrderDetail = static function (array $order, array $deliveries) use ($formatCustomer, $moneyFormatter): array {
     return [
         'code' => (string) ($order['order_code'] ?? '-'),
         'payment_code' => (string) ($order['payment_code'] ?? '') ?: '-',
@@ -19,20 +19,20 @@ $buildOrderDetail = static function (array $order, array $deliveries) use ($form
         'customer' => $formatCustomer($order),
         'product' => (string) ($order['product_name'] ?? '') ?: '-',
         'quantity' => (string) ($order['quantity'] ?? '-'),
-        'unit_price' => Helpers::money($order['unit_price'] ?? 0),
-        'discount_amount' => Helpers::money($order['discount_amount'] ?? 0),
-        'total' => Helpers::money((float) ($order['amount'] ?? 0) + (float) ($order['wallet_amount'] ?? 0)),
-        'wallet_amount' => Helpers::money($order['wallet_amount'] ?? 0),
-        'transfer_amount' => Helpers::money($order['amount'] ?? 0),
+        'unit_price' => $moneyFormatter->admin($order['unit_price'] ?? 0),
+        'discount_amount' => $moneyFormatter->admin($order['discount_amount'] ?? 0),
+        'total' => $moneyFormatter->admin((float) ($order['amount'] ?? 0) + (float) ($order['wallet_amount'] ?? 0)),
+        'wallet_amount' => $moneyFormatter->admin($order['wallet_amount'] ?? 0),
+        'transfer_amount' => $moneyFormatter->admin($order['amount'] ?? 0),
         'payment_method' => (string) ($order['payment_method'] ?? '-'),
         'status' => trim((string) ($order['status'] ?? '-') . ' / ' . ((string) ($order['result_reason'] ?? '') ?: '-')),
-        'wallet_credited' => Helpers::money($order['wallet_credited'] ?? 0),
+        'wallet_credited' => $moneyFormatter->admin($order['wallet_credited'] ?? 0),
         'completed_at' => Helpers::dateTime((string) (($order['completed_at'] ?? '') ?: ($order['created_at'] ?? ''))),
         'deliveries' => array_values(array_map(static fn (array $delivery): string => (string) ($delivery['content'] ?? ''), $deliveries)),
     ];
 };
 
-$renderLegacyDetail = static function (array $order, array $deliveries) use ($adminLang, $formatCustomer): void {
+$renderLegacyDetail = static function (array $order, array $deliveries) use ($adminLang, $formatCustomer, $moneyFormatter): void {
     $fields = [
         ['admin_order_code', (string) ($order['order_code'] ?? '-')],
         ['admin_order_payment_code', (string) ($order['payment_code'] ?? '') ?: '-'],
@@ -40,14 +40,14 @@ $renderLegacyDetail = static function (array $order, array $deliveries) use ($ad
         ['admin_order_customer', $formatCustomer($order)],
         ['admin_order_product', (string) ($order['product_name'] ?? '') ?: '-'],
         ['admin_order_quantity', (string) ($order['quantity'] ?? '-')],
-        ['admin_order_unit_price', Helpers::money($order['unit_price'] ?? 0)],
-        ['admin_order_discount_amount', Helpers::money($order['discount_amount'] ?? 0)],
-        ['admin_order_total', Helpers::money((float) ($order['amount'] ?? 0) + (float) ($order['wallet_amount'] ?? 0))],
-        ['admin_order_wallet_amount', Helpers::money($order['wallet_amount'] ?? 0)],
-        ['admin_order_transfer_amount', Helpers::money($order['amount'] ?? 0)],
+        ['admin_order_unit_price', $moneyFormatter->admin($order['unit_price'] ?? 0)],
+        ['admin_order_discount_amount', $moneyFormatter->admin($order['discount_amount'] ?? 0)],
+        ['admin_order_total', $moneyFormatter->admin((float) ($order['amount'] ?? 0) + (float) ($order['wallet_amount'] ?? 0))],
+        ['admin_order_wallet_amount', $moneyFormatter->admin($order['wallet_amount'] ?? 0)],
+        ['admin_order_transfer_amount', $moneyFormatter->admin($order['amount'] ?? 0)],
         ['admin_order_payment_method', (string) ($order['payment_method'] ?? '-')],
         ['admin_order_status', trim((string) ($order['status'] ?? '-') . ' / ' . ((string) ($order['result_reason'] ?? '') ?: '-'))],
-        ['admin_order_wallet_credited', Helpers::money($order['wallet_credited'] ?? 0)],
+        ['admin_order_wallet_credited', $moneyFormatter->admin($order['wallet_credited'] ?? 0)],
         ['admin_order_completed_at', Helpers::dateTime((string) (($order['completed_at'] ?? '') ?: ($order['created_at'] ?? '')))],
     ];
     ?>
@@ -123,7 +123,7 @@ unset($queryBase['p'], $queryBase['message']);
 <form method="get" class="toolbar"><input type="hidden" name="page" value="orders"><input name="code" value="<?= e($filters['code']) ?>" placeholder="Code OD"><input name="payment_code" value="<?= e($filters['payment_code']) ?>" placeholder="Mã DONATE"><input name="telegram_id" value="<?= e($filters['telegram_id']) ?>" placeholder="Telegram ID"><select name="payment_method"><option value="">Mọi thanh toán</option><option value="wallet" <?= $filters['payment_method'] === 'wallet' ? 'selected' : '' ?>>Ví</option><option value="vietqr_direct" <?= $filters['payment_method'] === 'vietqr_direct' ? 'selected' : '' ?>>Chuyển khoản</option><option value="hybrid" <?= $filters['payment_method'] === 'hybrid' ? 'selected' : '' ?>>Ví + chuyển khoản</option></select><select name="status"><option value="">Mọi trạng thái</option><?php foreach (['pending', 'processing', 'completed', 'failed', 'cancelled'] as $status): ?><option value="<?= e($status) ?>" <?= $filters['status'] === $status ? 'selected' : '' ?>><?= e($status) ?></option><?php endforeach; ?></select><input type="date" name="date_from" value="<?= e($filters['date_from']) ?>"><input type="date" name="date_to" value="<?= e($filters['date_to']) ?>"><button type="submit">Lọc</button><a class="button secondary" href="?page=orders">Xóa lọc</a></form>
 <div class="table-wrap"><table><thead><tr><th>Code</th><th>Mã chuyển khoản</th><th>Khách</th><th>Sản phẩm</th><th>SL</th><th>Tổng</th><th>Thanh toán</th><th>Kết quả</th><th>Thời gian</th><th></th></tr></thead><tbody>
 <?php if ($rows === []): ?><tr><td colspan="10">Không có dữ liệu phù hợp.</td></tr><?php endif; ?>
-<?php foreach ($rows as $row): $status = (string) ($row['status'] ?? 'pending'); $fullName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? '')); $username = trim((string) ($row['username'] ?? '')); ?><tr><td><?= e($row['order_code']) ?></td><td><?= e($row['payment_code'] ?: '-') ?></td><td><?= e($fullName !== '' ? $fullName : '-') ?><br><small><?= $username !== '' ? '@' . e($username) . ' ∙ ' : '' ?><?= e((string) ($row['telegram_id'] ?? '-')) ?></small></td><td><?= e($row['product_name'] ?? '') ?></td><td><?= e($row['quantity']) ?></td><td><?= e(Helpers::money((float) $row['amount'] + (float) $row['wallet_amount'])) ?></td><td><?= e($row['payment_method']) ?></td><td><span class="badge order-status <?= e($status) ?>"><?= e($status) ?></span><br><small><?= e($row['result_reason'] ?? '-') ?></small></td><td><?= e(Helpers::dateTime((string) ($row['completed_at'] ?: $row['created_at']))) ?></td><td><button type="button" class="secondary" data-open-order-modal="<?= e((string) $row['id']) ?>"><?= e($orderText('admin_order_detail_open')) ?></button></td></tr><?php endforeach; ?></tbody></table></div>
+<?php foreach ($rows as $row): $status = (string) ($row['status'] ?? 'pending'); $fullName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? '')); $username = trim((string) ($row['username'] ?? '')); ?><tr><td><?= e($row['order_code']) ?></td><td><?= e($row['payment_code'] ?: '-') ?></td><td><?= e($fullName !== '' ? $fullName : '-') ?><br><small><?= $username !== '' ? '@' . e($username) . ' ∙ ' : '' ?><?= e((string) ($row['telegram_id'] ?? '-')) ?></small></td><td><?= e($row['product_name'] ?? '') ?></td><td><?= e($row['quantity']) ?></td><td><?= e($moneyFormatter->admin((float) $row['amount'] + (float) $row['wallet_amount'])) ?></td><td><?= e($row['payment_method']) ?></td><td><span class="badge order-status <?= e($status) ?>"><?= e($status) ?></span><br><small><?= e($row['result_reason'] ?? '-') ?></small></td><td><?= e(Helpers::dateTime((string) ($row['completed_at'] ?: $row['created_at']))) ?></td><td><button type="button" class="secondary" data-open-order-modal="<?= e((string) $row['id']) ?>"><?= e($orderText('admin_order_detail_open')) ?></button></td></tr><?php endforeach; ?></tbody></table></div>
 <div class="toolbar"><?php if ($pageNumber > 1): ?><a class="button secondary" href="?<?= e(http_build_query($queryBase + ['page' => 'orders', 'p' => $pageNumber - 1])) ?>">Trang trước</a><?php endif; ?><span>Trang <?= e($pageNumber) ?> / <?= e($totalPages) ?> · <?= e($total) ?> bản ghi</span><?php if ($pageNumber < $totalPages): ?><a class="button secondary" href="?<?= e(http_build_query($queryBase + ['page' => 'orders', 'p' => $pageNumber + 1])) ?>">Trang sau</a><?php endif; ?></div>
 </div>
 

@@ -5,9 +5,11 @@ declare(strict_types=1);
 final class ProfileHandler
 {
     private const HISTORY_PAGE_SIZE = 5;
+    private MoneyFormatter $money;
 
     public function __construct(private Database $db, private Telegram $telegram)
     {
+        $this->money = new MoneyFormatter($db);
     }
 
     public function show(int $chatId, int $messageId, array $user, Language $lang): void
@@ -25,7 +27,7 @@ final class ProfileHandler
             . $lang->get('username') . ': ' . $usernameText
             . $premiumLine . "\n"
             . $lang->get('joined_since') . ': ' . Helpers::escape($joined) . "\n"
-            . $lang->get('balance') . ': <b>' . Helpers::money($user['balance']) . "</b>\n"
+            . $lang->get('balance') . ': <b>' . $this->money->forUser($user['balance'], (int) $user['id']) . "</b>\n"
             . $lang->get('purchased_orders') . ': ' . (int) $count['total'];
         $keyboard = [
             [['text' => $lang->get('transaction_history_button'), 'callback_data' => 'transactions:1']],
@@ -53,7 +55,7 @@ final class ProfileHandler
             $text .= "\n\n" . $lang->get('history_transaction_summary', [
                 'code' => Helpers::escape($code),
                 'type' => $type,
-                'amount' => Helpers::money($row['amount']),
+                'amount' => $this->money->forUser($row['amount'], $userId),
             ]);
             $keyboard[] = [[
                 'text' => $lang->get('history_detail_button', ['code' => $code]),
@@ -80,10 +82,10 @@ final class ProfileHandler
         $text = '<blockquote><b>' . $lang->get('history_detail_title') . "</b></blockquote>\n\n"
             . 'Code: <code>' . Helpers::escape($code) . "</code>\n"
             . $lang->get('transaction_status') . ': ' . $lang->get('transaction_type_' . $row['type']) . "\n"
-            . $lang->get('amount') . ': <b>' . Helpers::money($row['amount']) . "</b>\n"
+            . $lang->get('amount') . ': <b>' . $this->money->forUser($row['amount'], $userId) . "</b>\n"
             . $lang->get('transaction_time') . ': ' . Helpers::escape(Helpers::dateTime((string) $row['created_at']));
-        if ($row['balance_before'] !== null) $text .= "\n" . $lang->get('transaction_balance_before') . ': ' . Helpers::money($row['balance_before']);
-        if ($row['balance_after'] !== null) $text .= "\n" . $lang->get('transaction_balance_after') . ': ' . Helpers::money($row['balance_after']);
+        if ($row['balance_before'] !== null) $text .= "\n" . $lang->get('transaction_balance_before') . ': ' . $this->money->forUser($row['balance_before'], $userId);
+        if ($row['balance_after'] !== null) $text .= "\n" . $lang->get('transaction_balance_after') . ': ' . $this->money->forUser($row['balance_after'], $userId);
         if (trim((string) ($row['transfer_code'] ?? '')) !== '') $text .= "\n" . $lang->get('transaction_transfer_code') . ': <code>' . Helpers::escape($row['transfer_code']) . '</code>';
         if (trim((string) ($row['note'] ?? '')) !== '') {
             $note = $row['type'] === 'referral_reward' ? $lang->get('transaction_type_referral_reward') : $row['note'];
@@ -111,7 +113,7 @@ final class ProfileHandler
                 'code' => Helpers::escape($row['order_code']),
                 'product' => Helpers::escape($row['product_name'] ?: '-'),
                 'quantity' => (int) $row['quantity'],
-                'amount' => Helpers::money((float) $row['amount'] + (float) $row['wallet_amount']),
+                'amount' => $this->money->forUser((float) $row['amount'] + (float) $row['wallet_amount'], $userId),
             ]);
             $keyboard[] = [[
                 'text' => $lang->get('history_detail_button', ['code' => $row['order_code']]),
@@ -138,7 +140,7 @@ final class ProfileHandler
         $text = $lang->get('order_result_success', [
             'product' => Helpers::escape((string) ($order['product_name'] ?: '-')),
             'quantity' => (int) $order['quantity'],
-            'amount' => Helpers::money((float) $order['amount'] + (float) $order['wallet_amount']),
+            'amount' => $this->money->forUser((float) $order['amount'] + (float) $order['wallet_amount'], $userId),
             'order' => Helpers::escape((string) $order['order_code']),
             'time' => Helpers::dateTime((string) ($order['completed_at'] ?: $order['created_at'])),
         ]);

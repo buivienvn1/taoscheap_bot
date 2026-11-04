@@ -81,8 +81,8 @@ $pageUrl = static fn (int $page): string => '?' . http_build_query(['page' => 'r
 </section>
 <section class="card">
     <h2><?= e($t('referral_list')) ?></h2>
-    <p><?= e($t('referral_totals', ['paid' => Helpers::money($stats['paid']), 'queued' => Helpers::money($stats['queued']), 'verification' => $stats['verification']])) ?></p>
-    <p><?= e($t('referral_today', ['amount' => Helpers::money($today['reward_amount'] ?? 0), 'budget' => Helpers::money($config['daily_budget'])])) ?></p>
+    <p><?= e($t('referral_totals', ['paid' => $moneyFormatter->admin($stats['paid']), 'queued' => $moneyFormatter->admin($stats['queued']), 'verification' => $stats['verification']])) ?></p>
+    <p><?= e($t('referral_today', ['amount' => $moneyFormatter->admin($today['reward_amount'] ?? 0), 'budget' => $moneyFormatter->admin($config['daily_budget'])])) ?></p>
     <form method="get" class="toolbar">
         <input type="hidden" name="page" value="referrals">
         <input name="search" value="<?= e($search) ?>" placeholder="<?= e($t('referral_search')) ?>" aria-label="<?= e($t('referral_search')) ?>">
@@ -102,7 +102,7 @@ $pageUrl = static fn (int $page): string => '?' . http_build_query(['page' => 'r
                 <tr>
                     <td><?= e($row['inviter_telegram']) ?><br><span class="stock-content"><?= e($row['inviter_username'] ?? '') ?></span></td>
                     <td><?= e($row['invitee_telegram']) ?><br><span class="stock-content"><?= e($row['invitee_username'] ?? '') ?></span></td>
-                    <td><?= e(Helpers::money($row['reward_amount'])) ?></td>
+                    <td><?= e($moneyFormatter->admin($row['reward_amount'])) ?></td>
                     <td><?= e($t('referral_status_' . $row['status'])) ?></td>
                     <td><?= e($row['order_code'] ?? '—') ?></td>
                     <td><span class="stock-content"><?= e($t('referral_reason_' . ($row['reason'] ?? 'none'))) ?></span><?= e(Helpers::dateTime($row['checked_at'] ?? null)) ?></td>

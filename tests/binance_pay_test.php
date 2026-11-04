@@ -70,6 +70,8 @@ $assert(Helpers::formatDualPrice('255000', '25500', 'bank') === '255.000 VND (10
 $assert(Helpers::formatDualPrice('50000', '25500', 'bank', true) === '50.000 VND (<code>1.96 $</code>)', 'product list wraps only the secondary dollar price in code');
 $assert(Helpers::formatDualPrice('50000', '25500', 'binance_pay', true) === '1.96 $ (<code>50.000 VND</code>)', 'product list wraps only the secondary VND price in code');
 $assert(Helpers::formatDualPrice('50000', '0', 'binance_pay', true) === '50.000 VND', 'missing rate leaves the only available price unwrapped');
+$assert(Helpers::formatDualPrice('-50000', '25500', 'bank') === '-50.000 VND (-1.96 $)', 'negative Admin amount keeps the sign in both currencies');
+$assert(Helpers::formatDualPrice('-50000', '25500', 'binance_pay') === '-1.96 $ (-50.000 VND)', 'negative customer dollar-first amount keeps the sign in both currencies');
 $roundedUsdt = ceil((19900 / 25500) * 10000) / 10000;
 $assert($roundedUsdt * 25500 >= 19900, 'ceil USDT conversion never underpays VND amount');
 
@@ -80,6 +82,8 @@ $router = file_get_contents($root . '/bot/Router.php') ?: '';
 $orderHandler = file_get_contents($root . '/bot/handlers/OrderHandler.php') ?: '';
 $productHandler = file_get_contents($root . '/bot/handlers/ProductHandler.php') ?: '';
 $processor = file_get_contents($root . '/core/PaymentProcessor.php') ?: '';
+$moneyFormatter = file_get_contents($root . '/core/MoneyFormatter.php') ?: '';
+$adminOrders = file_get_contents($root . '/admin/modules/orders.php') ?: '';
 $cron = file_get_contents($root . '/cron/payment_feed.php') ?: '';
 $vi = require $root . '/languages/vi.php';
 $en = require $root . '/languages/en.php';
@@ -97,9 +101,12 @@ $assert(str_contains($router, 'recordBinanceProgressMessage'), 'verification mes
 $assert((bool) preg_match('/use\s*\([^)]*\$requestToken\s*,\s*\$paymentMethod\s*\)/s', $orderHandler), 'pending order transaction captures the selected payment method');
 $assert(str_contains($productHandler, 'Helpers::formatDualPrice($product[\'price\'], $rate, $preference, true)'), 'product list enables a copyable secondary price');
 $assert(str_contains($orderHandler, 'u.preferred_payment_method'), 'wallet delivery loads the latest user price preference');
-$assert(str_contains($orderHandler, 'Helpers::formatDualPrice('), 'wallet delivery formats a dual-currency total');
+$assert(str_contains($orderHandler, '$this->money->format('), 'wallet delivery uses the shared money formatter');
 $assert(substr_count($processor, 'u.preferred_payment_method') >= 3, 'external payment delivery loads the latest user price preference in every order path');
-$assert(str_contains($processor, '$this->formatOrderAmount($total'), 'external payment delivery formats a dual-currency total');
+$assert(str_contains($processor, '$this->money->format($total'), 'external payment delivery uses the shared money formatter');
+$assert(str_contains($moneyFormatter, "'bank'"), 'Admin formatter always requests VND-first display');
+$assert(str_contains($adminOrders, '$moneyFormatter->admin('), 'Admin order amounts use the shared VND-first formatter');
+$assert(str_contains($orderHandler, "'amount' => Helpers::money(\$bankAmount)"), 'Binance transfer keeps exact USDT primary with a VND-only annotation');
 $assert(str_contains($vi['binance_order_amount_line'] ?? '', '<code>:usdt USDT</code>'), 'Vietnamese Binance amount is copyable');
 $assert(str_contains($en['binance_order_amount_line'] ?? '', '<code>:usdt USDT</code>'), 'English Binance amount is copyable');
 $assert(str_contains($vi['product_item_sub'] ?? '', '<code>:count</code>'), 'Vietnamese product stock is copyable');

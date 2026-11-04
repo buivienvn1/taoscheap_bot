@@ -10,6 +10,6 @@ $stats = [
 <div class="grid">
   <div class="card"><div>Khách hàng</div><div class="stat"><?= e($stats['users']) ?></div></div>
   <div class="card"><div>Đơn hoàn thành</div><div class="stat"><?= e($stats['orders']) ?></div></div>
-  <div class="card"><div>Doanh thu</div><div class="stat"><?= e(Helpers::money($stats['revenue'])) ?></div></div>
+  <div class="card"><div>Doanh thu</div><div class="stat"><?= e($moneyFormatter->admin($stats['revenue'])) ?></div></div>
   <div class="card"><div>Kho còn lại</div><div class="stat"><?= e($stats['stock']) ?></div></div>
 </div>
